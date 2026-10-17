@@ -112,9 +112,7 @@ bool OrderBook::decreaseQuantityInPlace(OrderId id, Quantity new_qty) {
     return true;
 }
 
-bool OrderBook::contains(OrderId id) const {
-    return index_.count(id) != 0;
-}
+bool OrderBook::contains(OrderId id) const { return index_.count(id) != 0; }
 
 std::optional<Order> OrderBook::get(OrderId id) const {
     auto idx_it = index_.find(id);
@@ -244,16 +242,14 @@ std::optional<std::string> OrderBook::checkInvariants() const {
         bool found = false;
         if (loc.side == Side::Buy) {
             auto it = bids_.find(loc.price);
-            found = (it != bids_.end()) &&
-                    (std::find_if(it->second.orders.begin(), it->second.orders.end(),
-                                  [id](const Order& o) { return o.id == id; }) !=
-                     it->second.orders.end());
+            found = (it != bids_.end()) && (std::find_if(it->second.orders.begin(),
+                       it->second.orders.end(),
+                       [id](const Order& o) { return o.id == id; }) != it->second.orders.end());
         } else {
             auto it = asks_.find(loc.price);
-            found = (it != asks_.end()) &&
-                    (std::find_if(it->second.orders.begin(), it->second.orders.end(),
-                                  [id](const Order& o) { return o.id == id; }) !=
-                     it->second.orders.end());
+            found = (it != asks_.end()) && (std::find_if(it->second.orders.begin(),
+                       it->second.orders.end(),
+                       [id](const Order& o) { return o.id == id; }) != it->second.orders.end());
         }
         if (!found) {
             err << "index entry for order " << id << " does not resolve into the book";

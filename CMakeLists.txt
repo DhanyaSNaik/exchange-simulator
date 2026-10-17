@@ -50,3 +50,19 @@ add_executable(differential_test
 target_include_directories(differential_test PRIVATE tests/reference)
 target_link_libraries(differential_test PRIVATE lob_core)
 add_test(NAME differential_test COMMAND differential_test 300 300 2024)
+
+# --- Phase 2: benchmark-only artifacts (bench/). NOT part of the Phase 1
+# library; see DESIGN_DECISIONS.md "Phase 2" entry for why the flat-vector
+# alternative stays here rather than being promoted into include/lob/.
+add_executable(check_flat_correctness bench/check_flat_correctness.cpp)
+target_include_directories(check_flat_correctness PRIVATE bench)
+target_link_libraries(check_flat_correctness PRIVATE lob_core)
+add_test(NAME check_flat_correctness COMMAND check_flat_correctness)
+
+add_executable(run_benchmark bench/run_benchmark.cpp)
+target_include_directories(run_benchmark PRIVATE bench)
+target_link_libraries(run_benchmark PRIVATE lob_core)
+target_compile_options(run_benchmark PRIVATE -O3 -DNDEBUG)
+# Not added via add_test(): this is a benchmark, not a pass/fail
+# correctness check. Run manually: ./run_benchmark <n> <seed> <map|flat>,
+# or bench/run_benchmarks.sh <path-to-binary> <seed> to sweep all scales.

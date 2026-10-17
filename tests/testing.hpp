@@ -59,29 +59,30 @@ inline int runAll() {
 #define LOB_CONCAT_(a, b) a##b
 #define LOB_CONCAT(a, b) LOB_CONCAT_(a, b)
 
-#define TEST_CASE(name)                                                                          \
-    static void LOB_CONCAT(test_fn_, __LINE__)();                                                \
-    static ::testing::Registrar LOB_CONCAT(test_reg_, __LINE__)(name,                            \
-                                                                LOB_CONCAT(test_fn_, __LINE__)); \
+#define TEST_CASE(name)                                                         \
+    static void LOB_CONCAT(test_fn_, __LINE__)();                              \
+    static ::testing::Registrar LOB_CONCAT(test_reg_, __LINE__)(                \
+        name, LOB_CONCAT(test_fn_, __LINE__));                                  \
     static void LOB_CONCAT(test_fn_, __LINE__)()
 
-#define CHECK(cond)                                                                            \
-    do {                                                                                       \
-        if (!(cond)) {                                                                         \
-            throw ::testing::AssertionFailure(std::string("CHECK failed: ") + #cond + " at " + \
-                                              __FILE__ + ":" + std::to_string(__LINE__));      \
-        }                                                                                      \
+#define CHECK(cond)                                                             \
+    do {                                                                        \
+        if (!(cond)) {                                                          \
+            throw ::testing::AssertionFailure(                                  \
+                std::string("CHECK failed: ") + #cond + " at " + __FILE__ +     \
+                ":" + std::to_string(__LINE__));                                \
+        }                                                                        \
     } while (0)
 
-#define CHECK_EQ(a, b)                                                                \
-    do {                                                                              \
-        auto va = (a);                                                                \
-        auto vb = (b);                                                                \
-        if (!(va == vb)) {                                                            \
-            throw ::testing::AssertionFailure(std::string("CHECK_EQ failed: ") + #a + \
-                                              " != " + #b + " at " + __FILE__ + ":" + \
-                                              std::to_string(__LINE__));              \
-        }                                                                             \
+#define CHECK_EQ(a, b)                                                          \
+    do {                                                                        \
+        auto va = (a);                                                          \
+        auto vb = (b);                                                          \
+        if (!(va == vb)) {                                                      \
+            throw ::testing::AssertionFailure(                                  \
+                std::string("CHECK_EQ failed: ") + #a + " != " + #b + " at " +  \
+                __FILE__ + ":" + std::to_string(__LINE__));                     \
+        }                                                                        \
     } while (0)
 
 #define REQUIRE(cond) CHECK(cond)

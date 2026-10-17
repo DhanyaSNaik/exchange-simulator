@@ -112,6 +112,85 @@ code comments and a dedicated test) as a scope decision, not a gap nobody
 noticed -- adding a `participant_id` and a self-trade-prevention check is
 listed as future work in `README.md`.
 
+## Phase 2: core data structure stays `std::map` + `std::list` (not swapped to the flat vector)
+
+**Considered:** switching to Phase 0 §2 Option B (`std::vector<PriceLevel>`,
+sorted, binary search), based on `BENCHMARKS.md` showing it ~55% faster at
+10M events.
+
+**Chose:** keep the Phase 1 `std::map`/`std::list` implementation as the
+real one; Option B stays a bench-only artifact under `bench/`, not
+promoted into `include/lob/`.
+
+**Because:** benchmark instrumentation (per-event-type latency breakdown,
+not just aggregate throughput) showed the actual dominant cost at scale is
+`MatchingEngine::aggregateFillable()`'s `O(L)` dry-run scan for FOK
+orders -- not the top-level container's `O(log L)` lookup complexity,
+which is what switching to a flat vector would address. Level count only
+grew ~4.3x from 1M to 10M events, which doesn't explain a 55% throughput
+gap on `O(log L)` grounds alone; the FOK-submit-specific latency breakdown
+(4.9x -> 17.4x mean-latency ratio vs. other submits, map+list, 1M -> 10M)
+tracks the level-count growth closely and points at the per-level scan,
+not the container. Switching containers would improve the *constant
+factor* of that same `O(L)` scan (contiguous vs. pointer-chased traversal)
+without fixing its complexity class -- treating the symptom the benchmark
+happened to measure, not the cause.
+
+**Revisit if:** a future workload benchmark deliberately exercises
+`std::vector`'s O(n)-shift weakness (wide price-range churn, not just
+near-the-touch clustering, which is what this benchmark's generator
+produced) -- this round of benchmarking does not have evidence about
+that cost either way.
+
+**Update -- fix implemented, not just planned:** `aggregateFillable`'s
+redundant O(L) materialization (see next entry) was fixed immediately
+rather than deferred, since it was small, well-understood, and had no
+remaining design ambiguity. Post-fix, the map+list engine outperforms the
+*unmodified* flat_vector alternative at every benchmarked scale,
+including 10M events where flat_vector previously had a 55% lead. This
+is strong retrospective confirmation of the decision above: the container
+swap would have been a smaller, less-targeted win than fixing the actual
+redundant pass, and is now also simply unnecessary. See `BENCHMARKS.md`
+"Post-fix results" for before/after numbers.
+
+## `OrderBook::forEachLevelWhile` -- removing a redundant full-side materialization
+
+**Found:** `MatchingEngine::aggregateFillable` (the FOK atomicity dry-run)
+called `book_.depth(opp, book_.levelCount(opp))`, which unconditionally
+builds a `std::vector` of **every** level on the opposite side, before
+the early-exit summation loop beneath it ever runs. The early-exit itself
+was always correct (`break` once a non-crossing price is hit, or once
+enough quantity is found) -- but it sat downstream of a pass that had
+already paid the full O(L) cost of walking the whole side, on every
+single FOK order, regardless of how few levels were actually needed. This
+is not an inherent property of "checking fillability within a price
+limit" -- it was a wasted intermediate step.
+
+**Fixed:** added `OrderBook::forEachLevelWhile(side, fn)` -- a templated
+method (defined inline in the header, since the callback type must be
+visible at the call site) that iterates the map directly and stops
+calling `++iterator` the moment `fn` returns `false`. `aggregateFillable`
+now calls this instead of `depth()`, so the walk is bounded by however
+many levels this specific order actually needs to either find enough
+liquidity or hit a non-crossing price -- not by the total number of
+levels resting on that side.
+
+**Why not implemented as a maintained cumulative-quantity structure
+instead** (the first option considered): that would have meant keeping
+an additional running aggregate in sync with every insert/remove/reduce
+across both the map-based and (if ever promoted) any alternative
+implementation -- more state to keep correct, for a problem that turned
+out not to need it. The actual defect was a wasted full-materialization
+pass sitting in front of logic that already did the right thing; removing
+the wasted pass was sufficient and is simpler to audit than a second
+piece of synchronized state.
+
+**Verified:** full regression (42 unit tests, 300x1000-event property
+streams, 300x300-event differential streams, all under ASan+UBSan) passed
+identically before and after -- this change alters cost, not behavior,
+and the differential test against the untouched reference engine is what
+makes that claim checkable rather than assumed.
+
 ## `ExecutionReport` gained a `sequence` field, after initial implementation
 
 **Surfaced closing out Phase 1:** `ExecutionReport` had no way to expose

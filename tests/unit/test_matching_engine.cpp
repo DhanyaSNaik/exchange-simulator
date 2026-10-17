@@ -99,7 +99,7 @@ TEST_CASE("cancel of a resting order removes it and prevents future fills") {
     CHECK(c.status == OrderStatus::Cancelled);
 
     auto r = eng.submit(lim(2, Side::Buy, 100, 5));
-    CHECK(r.trades.empty());  // nothing to match against
+    CHECK(r.trades.empty());        // nothing to match against
     CHECK(r.status == OrderStatus::New);
 }
 
@@ -213,7 +213,7 @@ TEST_CASE("FOK respects its own price limit when aggregating fillable qty") {
     eng.submit(lim(2, Side::Sell, 105, 6));  // outside the FOK's price limit
 
     auto r = eng.submit(fok(3, Side::Buy, 100, 10));  // limit 100, needs 10
-    CHECK(r.status == OrderStatus::Rejected);         // only 4 is within reach at price <= 100
+    CHECK(r.status == OrderStatus::Rejected);  // only 4 is within reach at price <= 100
     CHECK(r.reject_reason == RejectReason::FOKUnfillable);
 }
 
@@ -283,8 +283,8 @@ TEST_CASE("self-crossing orders match normally (self-trade prevention is out of 
 
 TEST_CASE("spread, midprice, and microprice basic correctness") {
     MatchingEngine eng;
-    eng.submit(lim(1, Side::Buy, 98, 10));    // bid size 10
-    eng.submit(lim(2, Side::Sell, 102, 30));  // ask size 30
+    eng.submit(lim(1, Side::Buy, 98, 10));   // bid size 10
+    eng.submit(lim(2, Side::Sell, 102, 30)); // ask size 30
 
     CHECK_EQ(*eng.spread(), Price{4});
     CHECK_EQ(*eng.midprice(), 100.0);

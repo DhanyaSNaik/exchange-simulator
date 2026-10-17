@@ -14,9 +14,8 @@ Order lim(OrderId id, Side side, Price price, Quantity qty) {
 }
 }  // namespace
 
-TEST_CASE(
-    "ADVERSARIAL: replace that re-specifies the SAME price and qty "
-    "still forfeits priority, and does not spuriously trade") {
+TEST_CASE("ADVERSARIAL: replace that re-specifies the SAME price and qty "
+          "still forfeits priority, and does not spuriously trade") {
     // Easy to assume "nothing changed" means "nothing happens." But the
     // implementation only special-cases the OMITTED case (both fields
     // nullopt); an explicitly-equal value still fails the strict-decrease
@@ -34,15 +33,14 @@ TEST_CASE(
     MatchingEngine::ReplaceRequest req{1, Price{100}, Quantity{10}};  // explicitly unchanged
     auto r = eng.replace(req);
 
-    CHECK(r.trades.empty());  // no spurious match
+    CHECK(r.trades.empty());               // no spurious match
     CHECK(r.status != OrderStatus::Filled);
     CHECK_EQ(*eng.queuePosition(2), std::size_t{0});  // order 2 now ahead
     CHECK_EQ(*eng.queuePosition(1), std::size_t{1});  // priority WAS forfeited
 }
 
-TEST_CASE(
-    "ADVERSARIAL: an order id can be legitimately reused after its "
-    "original order is fully cancelled") {
+TEST_CASE("ADVERSARIAL: an order id can be legitimately reused after its "
+          "original order is fully cancelled") {
     // The duplicate-id guard checks only CURRENTLY-RESTING orders
     // (OrderBook::contains), by design (Phase 1 API note: no
     // all-time-ever-used id ledger is kept). This test pins that as
@@ -59,9 +57,8 @@ TEST_CASE(
     CHECK_EQ(*eng.bestAsk(), Price{101});
 }
 
-TEST_CASE(
-    "ADVERSARIAL: FOK that spans two price levels consumes only "
-    "PART of the second level, exactly, on commit") {
+TEST_CASE("ADVERSARIAL: FOK that spans two price levels consumes only "
+          "PART of the second level, exactly, on commit") {
     // The dry-run (aggregateFillable) only needs to prove TOTAL liquidity
     // within the price limit is sufficient -- it is not required to, and
     // does not, reason about which individual resting orders get
@@ -87,14 +84,13 @@ TEST_CASE(
 
     CHECK(eng.bestAsk().has_value());  // sanity: ask side still exists
     auto depth = eng.depth(Side::Sell, 5);
-    CHECK_EQ(depth.size(), std::size_t{1});  // level 1 fully gone
+    CHECK_EQ(depth.size(), std::size_t{1});   // level 1 fully gone
     CHECK_EQ(depth[0].first, Price{101});
-    CHECK_EQ(depth[0].second, Quantity{7});  // 10 - 3 = 7 left resting at level 2
+    CHECK_EQ(depth[0].second, Quantity{7});   // 10 - 3 = 7 left resting at level 2
 }
 
-TEST_CASE(
-    "ADVERSARIAL: a Market order's price field is garbage and must "
-    "be completely ignored by both validation and crossing logic") {
+TEST_CASE("ADVERSARIAL: a Market order's price field is garbage and must "
+          "be completely ignored by both validation and crossing logic") {
     // validate() only checks price for non-Market types, and crosses()
     // short-circuits true for Market regardless of price -- but nothing
     // stops a caller from constructing a Market order with a nonsensical

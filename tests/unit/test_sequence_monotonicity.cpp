@@ -18,9 +18,8 @@
 
 using namespace lob;
 
-TEST_CASE(
-    "sequence numbers are strictly increasing across a long mixed "
-    "random stream, counting only sequence-bearing events") {
+TEST_CASE("sequence numbers are strictly increasing across a long mixed "
+          "random stream, counting only sequence-bearing events") {
     MatchingEngine eng;
     std::mt19937_64 rng(424242);
     std::vector<OrderId> live_ids;
@@ -34,14 +33,10 @@ TEST_CASE(
     auto randSide = [&] { return (rng() % 2 == 0) ? Side::Buy : Side::Sell; };
     auto randType = [&]() -> OrderType {
         switch (rng() % 4) {
-            case 0:
-                return OrderType::Limit;
-            case 1:
-                return OrderType::Market;
-            case 2:
-                return OrderType::IOC;
-            default:
-                return OrderType::FOK;
+            case 0: return OrderType::Limit;
+            case 1: return OrderType::Market;
+            case 2: return OrderType::IOC;
+            default: return OrderType::FOK;
         }
     };
 

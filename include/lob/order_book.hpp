@@ -20,9 +20,9 @@ namespace lob {
 // deque erase invalidates iterators/references at or after the erase point,
 // which would silently corrupt the index below.
 struct PriceLevel {
-    Price price = 0;
+    Price            price = 0;
     std::list<Order> orders;
-    Quantity total_qty = 0;
+    Quantity         total_qty = 0;
 };
 
 // Pure storage: price-time-ordered resting orders. Knows nothing about
@@ -74,6 +74,30 @@ public:
     // best-price-first.
     std::vector<std::pair<Price, Quantity>> depth(Side side, std::size_t levels) const;
 
+    // Walks levels on `side`, best-price-first, calling
+    // fn(price, total_qty) for each -- STOPPING as soon as fn returns
+    // false, without ever materializing levels beyond that point into a
+    // vector. This exists specifically because `depth(side,
+    // levelCount(side))` -- which MatchingEngine::aggregateFillable used
+    // to call -- unconditionally builds a vector of EVERY level before
+    // any early-exit logic runs on top of it, paying the full O(L) cost
+    // of walking the whole side regardless of how few levels an order
+    // actually needs. See DESIGN_DECISIONS.md, Phase 2 fix. Templated and
+    // defined here (not in the .cpp) because the callback type has to be
+    // visible at the call site.
+    template <typename Fn>
+    void forEachLevelWhile(Side side, Fn&& fn) const {
+        if (side == Side::Buy) {
+            for (const auto& [price, level] : bids_) {
+                if (!fn(price, level.total_qty)) return;
+            }
+        } else {
+            for (const auto& [price, level] : asks_) {
+                if (!fn(price, level.total_qty)) return;
+            }
+        }
+    }
+
     // 0-indexed position of order `id` within its own price level's FIFO
     // queue (0 = next to trade at that level). O(position): a linear walk
     // of std::list. This is a query path, not the matching hot path, so
@@ -90,8 +114,8 @@ public:
 
 private:
     struct Locator {
-        Side side;
-        Price price;
+        Side                        side;
+        Price                       price;
         std::list<Order>::iterator it;
     };
 
@@ -100,8 +124,8 @@ private:
     // "best price", which is the only property the matching/query code
     // actually relies on.
     std::map<Price, PriceLevel, std::greater<Price>> bids_;
-    std::map<Price, PriceLevel, std::less<Price>> asks_;
-    std::unordered_map<OrderId, Locator> index_;
+    std::map<Price, PriceLevel, std::less<Price>>    asks_;
+    std::unordered_map<OrderId, Locator>              index_;
 };
 
 }  // namespace lob

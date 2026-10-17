@@ -31,8 +31,25 @@ profiling-driven (not assumed) optimization.
 See `ARCHITECTURE.md` for module/class/sequence diagrams,
 `DESIGN_DECISIONS.md` for the alternatives considered and why each choice
 was made, `TESTING.md` for the test strategy and how to reproduce a
-property-test failure, and `BENCHMARKS.md` (Phase 2) for throughput/latency
-numbers at 100k/1M/10M events.
+property-test failure, and `BENCHMARKS.md` for throughput/latency/memory
+numbers at 100k/1M/10M events, including a naive-vs-optimized comparison
+against Phase 0's flat-vector alternative and the (initially
+counter-intuitive) explanation for why it wins at scale.
+
+## Benchmarking
+
+```sh
+cmake --build build --target run_benchmark
+./build/run_benchmark 1000000 42 map     # single run
+bench/run_benchmarks.sh ./build/run_benchmark 42   # full 100k/1M/10M sweep, both engines
+```
+
+`bench/` also contains `FlatVectorOrderBook` / `FlatMatchingEngine` -- the
+Phase 0 Option B alternative, built and differentially-tested against the
+real engine specifically to produce `BENCHMARKS.md`'s comparison. It is
+deliberately not part of the `include/lob/` library; see
+`DESIGN_DECISIONS.md`'s Phase 2 entry for why it wasn't promoted despite
+winning the throughput comparison.
 
 ## Building
 

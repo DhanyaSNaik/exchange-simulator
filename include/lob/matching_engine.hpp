@@ -22,29 +22,31 @@ public:
     ExecutionReport cancel(OrderId id);
 
     struct ReplaceRequest {
-        OrderId id;
-        std::optional<Price> new_price;   // nullopt = unchanged
-        std::optional<Quantity> new_qty;  // nullopt = unchanged
+        OrderId                 id;
+        std::optional<Price>    new_price;  // nullopt = unchanged
+        std::optional<Quantity> new_qty;    // nullopt = unchanged
     };
     ExecutionReport replace(const ReplaceRequest& req);
 
     // --- read-only analytics, delegating to the OrderBook ---
-    std::optional<Price> bestBid() const { return book_.bestBid(); }
-    std::optional<Price> bestAsk() const { return book_.bestAsk(); }
-    std::optional<Price> spread() const;
+    std::optional<Price>  bestBid() const { return book_.bestBid(); }
+    std::optional<Price>  bestAsk() const { return book_.bestAsk(); }
+    std::optional<Price>  spread() const;
     std::optional<double> midprice() const;
     std::optional<double> microprice() const;
-    double orderImbalance(std::size_t levels = 1) const;
+    double                orderImbalance(std::size_t levels = 1) const;
     std::vector<std::pair<Price, Quantity>> depth(Side side, std::size_t levels) const {
         return book_.depth(side, levels);
     }
-    std::optional<std::size_t> queuePosition(OrderId id) const { return book_.queuePosition(id); }
+    std::optional<std::size_t> queuePosition(OrderId id) const {
+        return book_.queuePosition(id);
+    }
 
     const OrderBook& book() const { return book_; }  // for test/invariant inspection
 
 private:
-    OrderBook book_;
-    Sequence sequence_counter_ = 0;
+    OrderBook     book_;
+    Sequence      sequence_counter_ = 0;
     std::uint64_t trade_id_counter_ = 0;
 
     // Walks the opposing side consuming liquidity for an aggressive order.
