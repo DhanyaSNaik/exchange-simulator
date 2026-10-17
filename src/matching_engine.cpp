@@ -13,7 +13,7 @@ RejectReason MatchingEngine::validate(const Order& order) {
 bool MatchingEngine::crosses(const Order& aggressor, Price resting_price) {
     if (aggressor.type == OrderType::Market) return true;
     return aggressor.side == Side::Buy ? aggressor.price >= resting_price
-                                        : aggressor.price <= resting_price;
+                                       : aggressor.price <= resting_price;
 }
 
 Quantity MatchingEngine::aggregateFillable(const Order& order) const {
@@ -40,8 +40,8 @@ std::vector<Trade> MatchingEngine::matchAggressive(Order& order) {
 
         const Quantity trade_qty = std::min(order.remaining_qty, front->remaining_qty);
 
-        trades.push_back(Trade{++trade_id_counter_, order.id, front->id, front->price,
-                                trade_qty, order.sequence});
+        trades.push_back(Trade{++trade_id_counter_, order.id, front->id, front->price, trade_qty,
+                               order.sequence});
 
         order.remaining_qty -= trade_qty;
         // Mutate the book by id, never through `front` (which is a copy
@@ -54,9 +54,9 @@ std::vector<Trade> MatchingEngine::matchAggressive(Order& order) {
 
 ExecutionReport MatchingEngine::submit(Order order) {
     order.sequence = ++sequence_counter_;  // every event consumes a sequence
-                                            // number, even a rejected one --
-                                            // monotonicity, not "only valid
-                                            // events count" (Phase 0 §3.10).
+                                           // number, even a rejected one --
+                                           // monotonicity, not "only valid
+                                           // events count" (Phase 0 §3.10).
 
     RejectReason reason = validate(order);
     if (reason == RejectReason::None && book_.contains(order.id)) {
@@ -74,8 +74,9 @@ ExecutionReport MatchingEngine::submit(Order order) {
         // committed if insufficient liquidity were discovered partway
         // through a multi-level sweep.
         if (aggregateFillable(order) < order.remaining_qty) {
-            return ExecutionReport{order.id, OrderStatus::Rejected, 0, 0, {},
-                                    RejectReason::FOKUnfillable, order.sequence};
+            return ExecutionReport{
+                order.id,      OrderStatus::Rejected, 0, 0, {}, RejectReason::FOKUnfillable,
+                order.sequence};
         }
     }
 
@@ -95,8 +96,7 @@ ExecutionReport MatchingEngine::submit(Order order) {
         // already be fully filled by the pre-check above; the branch below
         // still defensively discards rather than resting if that ever
         // fails to hold, rather than silently violating invariant §3.12).
-        order.status =
-            (report.filled_qty > 0) ? OrderStatus::PartiallyFilled : OrderStatus::New;
+        order.status = (report.filled_qty > 0) ? OrderStatus::PartiallyFilled : OrderStatus::New;
         book_.insert(order);
         report.status = order.status;
         report.remaining_qty = order.remaining_qty;  // now resting in the book
@@ -127,17 +127,16 @@ ExecutionReport MatchingEngine::replace(const ReplaceRequest& req) {
         // No-op replace request: nothing to do, nothing forfeited.
         std::optional<Order> current = book_.get(req.id);
         if (!current) {
-            return ExecutionReport{req.id, OrderStatus::Rejected, 0, 0, {},
-                                    RejectReason::UnknownOrder};
+            return ExecutionReport{req.id, OrderStatus::Rejected,     0, 0,
+                                   {},     RejectReason::UnknownOrder};
         }
-        return ExecutionReport{req.id, current->status, 0, current->remaining_qty, {},
-                                RejectReason::None};
+        return ExecutionReport{req.id, current->status,   0, current->remaining_qty,
+                               {},     RejectReason::None};
     }
 
     std::optional<Order> current = book_.get(req.id);
     if (!current) {
-        return ExecutionReport{req.id, OrderStatus::Rejected, 0, 0, {},
-                                RejectReason::UnknownOrder};
+        return ExecutionReport{req.id, OrderStatus::Rejected, 0, 0, {}, RejectReason::UnknownOrder};
     }
 
     const bool price_changed = req.new_price.has_value() && *req.new_price != current->price;
@@ -167,9 +166,8 @@ ExecutionReport MatchingEngine::replace(const ReplaceRequest& req) {
     // removed is guaranteed present: `current` was read moments earlier
     // and this engine processes events strictly sequentially (no
     // concurrent mutation is possible between the two lookups).
-    Order new_order(req.id, removed->side, removed->type,
-                     req.new_price.value_or(removed->price),
-                     req.new_qty.value_or(removed->remaining_qty));
+    Order new_order(req.id, removed->side, removed->type, req.new_price.value_or(removed->price),
+                    req.new_qty.value_or(removed->remaining_qty));
     return submit(new_order);
 }
 
@@ -193,9 +191,9 @@ std::optional<double> MatchingEngine::microprice() const {
     if (bidLevel.empty() || askLevel.empty()) return std::nullopt;
 
     const double bid_price = static_cast<double>(bidLevel[0].first);
-    const double bid_size  = static_cast<double>(bidLevel[0].second);
+    const double bid_size = static_cast<double>(bidLevel[0].second);
     const double ask_price = static_cast<double>(askLevel[0].first);
-    const double ask_size  = static_cast<double>(askLevel[0].second);
+    const double ask_size = static_cast<double>(askLevel[0].second);
 
     if (bid_size + ask_size == 0.0) return std::nullopt;
 

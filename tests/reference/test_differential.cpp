@@ -58,10 +58,14 @@ bool runDifferentialStream(std::uint64_t seed, int num_events) {
     auto randSide = [&] { return (rng() % 2 == 0) ? Side::Buy : Side::Sell; };
     auto randType = [&]() -> OrderType {
         switch (rng() % 4) {
-            case 0: return OrderType::Limit;
-            case 1: return OrderType::Market;
-            case 2: return OrderType::IOC;
-            default: return OrderType::FOK;
+            case 0:
+                return OrderType::Limit;
+            case 1:
+                return OrderType::Market;
+            case 2:
+                return OrderType::IOC;
+            default:
+                return OrderType::FOK;
         }
     };
 
@@ -145,8 +149,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    std::cout << (num_streams - failures) << "/" << num_streams
-              << " differential streams matched (" << events_per_stream
-              << " events each, " << failures << " failed)\n";
+    std::cout << (num_streams - failures) << "/" << num_streams << " differential streams matched ("
+              << events_per_stream << " events each, " << failures << " failed)\n";
     return failures == 0 ? 0 : 1;
 }

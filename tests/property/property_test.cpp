@@ -28,17 +28,22 @@ struct RandomEventGenerator {
 
     explicit RandomEventGenerator(std::uint64_t seed) : rng(seed) {}
 
-    Price randPrice() { return 95 + static_cast<Price>(rng() % 11); }     // 95..105
-    Quantity randQty() { return 1 + static_cast<Quantity>(rng() % 20);    // 1..20
+    Price randPrice() { return 95 + static_cast<Price>(rng() % 11); }  // 95..105
+    Quantity randQty() {
+        return 1 + static_cast<Quantity>(rng() % 20);  // 1..20
     }
     Side randSide() { return (rng() % 2 == 0) ? Side::Buy : Side::Sell; }
 
     OrderType randType() {
         switch (rng() % 4) {
-            case 0: return OrderType::Limit;
-            case 1: return OrderType::Market;
-            case 2: return OrderType::IOC;
-            default: return OrderType::FOK;
+            case 0:
+                return OrderType::Limit;
+            case 1:
+                return OrderType::Market;
+            case 2:
+                return OrderType::IOC;
+            default:
+                return OrderType::FOK;
         }
     }
 
@@ -61,7 +66,7 @@ struct EngineInvariantTracker {
     Sequence last_sequence = 0;
 
     std::optional<std::string> checkReport(const ExecutionReport& report,
-                                             Sequence /*expected_min*/) {
+                                           Sequence /*expected_min*/) {
         // §3.9 conservation: filled + remaining can never exceed what the
         // order could possibly have (can't check original here directly,
         // but filled/remaining must both be non-negative).
@@ -71,8 +76,7 @@ struct EngineInvariantTracker {
         // §3.12: IOC/Market/FOK/zero-remainder cases must report
         // remaining_qty == 0 (never rests) -- MatchingEngine enforces this
         // by construction; this is a belt-and-suspenders runtime check.
-        if ((report.status == OrderStatus::Cancelled ||
-             report.status == OrderStatus::Filled ||
+        if ((report.status == OrderStatus::Cancelled || report.status == OrderStatus::Filled ||
              report.status == OrderStatus::Rejected) &&
             report.remaining_qty != 0) {
             return "terminal status reported non-zero remaining_qty";
@@ -144,8 +148,8 @@ bool runOneStream(std::uint64_t seed, int num_events, bool verbose) {
         // The structural invariant walk -- after EVERY event, not just at
         // the end of the run.
         if (auto err = eng.book().checkInvariants()) {
-            std::cerr << "seed=" << seed << " event=" << i
-                      << " book invariant violated: " << *err << "\n";
+            std::cerr << "seed=" << seed << " event=" << i << " book invariant violated: " << *err
+                      << "\n";
             return false;
         }
 
@@ -171,15 +175,14 @@ int main(int argc, char** argv) {
     for (int s = 0; s < num_streams; ++s) {
         std::uint64_t seed = base_seed + static_cast<std::uint64_t>(s);
         if (!runOneStream(seed, events_per_stream, false)) {
-            std::cerr << "FAILING SEED: " << seed
-                      << " (rerun with argv[3]=" << seed << ", num_streams=1)\n";
+            std::cerr << "FAILING SEED: " << seed << " (rerun with argv[3]=" << seed
+                      << ", num_streams=1)\n";
             ++failures;
         }
     }
 
     std::cout << (num_streams - failures) << "/" << num_streams
-              << " randomized event streams passed ("
-              << events_per_stream << " events each, " << failures
-              << " failed)\n";
+              << " randomized event streams passed (" << events_per_stream << " events each, "
+              << failures << " failed)\n";
     return failures == 0 ? 0 : 1;
 }
