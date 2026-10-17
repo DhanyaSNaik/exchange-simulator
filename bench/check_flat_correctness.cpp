@@ -51,10 +51,14 @@ bool runStream(std::uint64_t seed, int n) {
     auto side = [&] { return (rng() % 2 == 0) ? Side::Buy : Side::Sell; };
     auto type = [&]() -> OrderType {
         switch (rng() % 4) {
-            case 0: return OrderType::Limit;
-            case 1: return OrderType::Market;
-            case 2: return OrderType::IOC;
-            default: return OrderType::FOK;
+            case 0:
+                return OrderType::Limit;
+            case 1:
+                return OrderType::Market;
+            case 2:
+                return OrderType::IOC;
+            default:
+                return OrderType::FOK;
         }
     };
 
@@ -66,8 +70,9 @@ bool runStream(std::uint64_t seed, int n) {
             auto r1 = real_eng.submit(o);
             auto r2 = flat_eng.submit(o);
             if (!match(r1, r2)) {
-                std::cerr << "seed=" << seed << " event=" << i << " DIVERGE submit\n  real: "
-                          << describe(r1) << "\n  flat: " << describe(r2) << "\n";
+                std::cerr << "seed=" << seed << " event=" << i
+                          << " DIVERGE submit\n  real: " << describe(r1)
+                          << "\n  flat: " << describe(r2) << "\n";
                 return false;
             }
             if (r1.status == OrderStatus::New || r1.status == OrderStatus::PartiallyFilled) {

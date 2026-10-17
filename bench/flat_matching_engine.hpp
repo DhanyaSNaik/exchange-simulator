@@ -29,14 +29,15 @@ public:
             reason = RejectReason::DuplicateId;
         }
         if (reason != RejectReason::None) {
-            return ExecutionReport{order.id, OrderStatus::Rejected, 0, 0, {}, reason,
-                                    order.sequence};
+            return ExecutionReport{order.id, OrderStatus::Rejected, 0, 0, {},
+                                   reason,   order.sequence};
         }
 
         if (order.type == OrderType::FOK) {
             if (aggregateFillable(order) < order.remaining_qty) {
-                return ExecutionReport{order.id, OrderStatus::Rejected, 0, 0, {},
-                                        RejectReason::FOKUnfillable, order.sequence};
+                return ExecutionReport{
+                    order.id,      OrderStatus::Rejected, 0, 0, {}, RejectReason::FOKUnfillable,
+                    order.sequence};
             }
         }
 
@@ -88,17 +89,17 @@ public:
         if (!req.new_price && !req.new_qty) {
             auto current = book_.get(req.id);
             if (!current) {
-                return ExecutionReport{req.id, OrderStatus::Rejected, 0, 0, {},
-                                        RejectReason::UnknownOrder};
+                return ExecutionReport{req.id, OrderStatus::Rejected,     0, 0,
+                                       {},     RejectReason::UnknownOrder};
             }
-            return ExecutionReport{req.id, current->status, 0, current->remaining_qty, {},
-                                    RejectReason::None};
+            return ExecutionReport{req.id, current->status,   0, current->remaining_qty,
+                                   {},     RejectReason::None};
         }
 
         auto current = book_.get(req.id);
         if (!current) {
-            return ExecutionReport{req.id, OrderStatus::Rejected, 0, 0, {},
-                                    RejectReason::UnknownOrder};
+            return ExecutionReport{req.id, OrderStatus::Rejected,     0, 0,
+                                   {},     RejectReason::UnknownOrder};
         }
 
         const bool price_changed = req.new_price && *req.new_price != current->price;
@@ -117,8 +118,8 @@ public:
 
         auto removed = book_.remove(req.id);
         Order new_order(req.id, removed->side, removed->type,
-                         req.new_price.value_or(removed->price),
-                         req.new_qty.value_or(removed->remaining_qty));
+                        req.new_price.value_or(removed->price),
+                        req.new_qty.value_or(removed->remaining_qty));
         return submit(new_order);
     }
 
@@ -140,7 +141,7 @@ private:
     static bool crosses(const Order& aggressor, Price resting_price) {
         if (aggressor.type == OrderType::Market) return true;
         return aggressor.side == Side::Buy ? aggressor.price >= resting_price
-                                            : aggressor.price <= resting_price;
+                                           : aggressor.price <= resting_price;
     }
 
     Quantity aggregateFillable(const Order& order) const {
@@ -166,7 +167,7 @@ private:
 
             const Quantity trade_qty = std::min(order.remaining_qty, front->remaining_qty);
             trades.push_back(Trade{++trade_id_counter_, order.id, front->id, front->price,
-                                    trade_qty, order.sequence});
+                                   trade_qty, order.sequence});
             order.remaining_qty -= trade_qty;
             book_.reduceQuantity(front->id, trade_qty);
         }

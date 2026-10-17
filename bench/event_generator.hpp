@@ -22,7 +22,7 @@ enum class EventKind { Submit, Cancel, Replace };
 struct SyntheticEvent {
     EventKind kind;
     Order order{0, Side::Buy, OrderType::Limit, 0, 0};  // used when kind == Submit
-    OrderId target_id = 0;                               // used for Cancel/Replace
+    OrderId target_id = 0;                              // used for Cancel/Replace
     std::optional<Price> replace_price;
     std::optional<Quantity> replace_qty;
 };

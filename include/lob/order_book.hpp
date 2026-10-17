@@ -20,9 +20,9 @@ namespace lob {
 // deque erase invalidates iterators/references at or after the erase point,
 // which would silently corrupt the index below.
 struct PriceLevel {
-    Price            price = 0;
+    Price price = 0;
     std::list<Order> orders;
-    Quantity         total_qty = 0;
+    Quantity total_qty = 0;
 };
 
 // Pure storage: price-time-ordered resting orders. Knows nothing about
@@ -114,8 +114,8 @@ public:
 
 private:
     struct Locator {
-        Side                        side;
-        Price                       price;
+        Side side;
+        Price price;
         std::list<Order>::iterator it;
     };
 
@@ -124,8 +124,8 @@ private:
     // "best price", which is the only property the matching/query code
     // actually relies on.
     std::map<Price, PriceLevel, std::greater<Price>> bids_;
-    std::map<Price, PriceLevel, std::less<Price>>    asks_;
-    std::unordered_map<OrderId, Locator>              index_;
+    std::map<Price, PriceLevel, std::less<Price>> asks_;
+    std::unordered_map<OrderId, Locator> index_;
 };
 
 }  // namespace lob

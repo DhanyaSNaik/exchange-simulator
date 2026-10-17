@@ -54,8 +54,8 @@ LatencyStats computeStats(std::vector<double>& ns) {  // sorts in place
 
 template <typename EngineT, typename ReplaceReqT>
 void runEventStream(EngineT& eng, const std::vector<lob_bench::SyntheticEvent>& events,
-                     std::vector<double>& latencies_ns, std::vector<double>* fok_latencies_ns,
-                     std::vector<double>* other_submit_latencies_ns) {
+                    std::vector<double>& latencies_ns, std::vector<double>* fok_latencies_ns,
+                    std::vector<double>* other_submit_latencies_ns) {
     latencies_ns.reserve(events.size());
     for (const auto& ev : events) {
         auto t0 = Clock::now();
@@ -94,10 +94,10 @@ void report(const std::string& label, std::vector<double> latencies_ns, double t
             long rss_kb) {
     auto stats = computeStats(latencies_ns);
     double throughput = static_cast<double>(latencies_ns.size()) / total_seconds;
-    std::printf("  %-18s throughput=%.0f events/sec  p50=%.0fns  p95=%.0fns  p99=%.0fns  "
-                "max=%.0fns  mean=%.0fns  peak_RSS=%ldKB\n",
-                label.c_str(), throughput, stats.p50, stats.p95, stats.p99, stats.max,
-                stats.mean, rss_kb);
+    std::printf(
+        "  %-18s throughput=%.0f events/sec  p50=%.0fns  p95=%.0fns  p99=%.0fns  "
+        "max=%.0fns  mean=%.0fns  peak_RSS=%ldKB\n",
+        label.c_str(), throughput, stats.p50, stats.p95, stats.p99, stats.max, stats.mean, rss_kb);
 }
 
 }  // namespace
@@ -112,8 +112,8 @@ int main(int argc, char** argv) {
     // two engines used more memory, not necessarily itself. Separate
     // processes (orchestrated by run_benchmarks.sh) is what makes each
     // engine's memory number actually attributable to that engine.
-    std::size_t n = (argc > 1) ? static_cast<std::size_t>(std::strtoull(argv[1], nullptr, 10))
-                                : 100000;
+    std::size_t n =
+        (argc > 1) ? static_cast<std::size_t>(std::strtoull(argv[1], nullptr, 10)) : 100000;
     std::uint64_t seed = (argc > 2) ? std::strtoull(argv[2], nullptr, 10) : 42;
     std::string engine_kind = (argc > 3) ? argv[3] : "map";
 
@@ -125,8 +125,8 @@ int main(int argc, char** argv) {
         MatchingEngine eng;
         std::vector<double> lat;
         auto t0 = Clock::now();
-        runEventStream<MatchingEngine, MatchingEngine::ReplaceRequest>(eng, events, lat,
-                                                                        &fok_lat, &other_lat);
+        runEventStream<MatchingEngine, MatchingEngine::ReplaceRequest>(eng, events, lat, &fok_lat,
+                                                                       &other_lat);
         auto t1 = Clock::now();
         double secs = std::chrono::duration<double>(t1 - t0).count();
         report("map+list (P1)", std::move(lat), secs, currentRssKb());
@@ -137,8 +137,9 @@ int main(int argc, char** argv) {
         lob_bench::FlatMatchingEngine eng;
         std::vector<double> lat;
         auto t0 = Clock::now();
-        runEventStream<lob_bench::FlatMatchingEngine, lob_bench::FlatMatchingEngine::ReplaceRequest>(
-            eng, events, lat, &fok_lat, &other_lat);
+        runEventStream<lob_bench::FlatMatchingEngine,
+                       lob_bench::FlatMatchingEngine::ReplaceRequest>(eng, events, lat, &fok_lat,
+                                                                      &other_lat);
         auto t1 = Clock::now();
         double secs = std::chrono::duration<double>(t1 - t0).count();
         report("flat_vector (B)", std::move(lat), secs, currentRssKb());
@@ -152,8 +153,7 @@ int main(int argc, char** argv) {
         auto fok_stats = computeStats(fok_lat);
         auto other_stats = computeStats(other_lat);
         std::printf("    FOK submits   (n=%6zu): p50=%.0fns p99=%.0fns max=%.0fns mean=%.0fns\n",
-                    fok_lat.size(), fok_stats.p50, fok_stats.p99, fok_stats.max,
-                    fok_stats.mean);
+                    fok_lat.size(), fok_stats.p50, fok_stats.p99, fok_stats.max, fok_stats.mean);
         std::printf("    other submits (n=%6zu): p50=%.0fns p99=%.0fns max=%.0fns mean=%.0fns\n",
                     other_lat.size(), other_stats.p50, other_stats.p99, other_stats.max,
                     other_stats.mean);

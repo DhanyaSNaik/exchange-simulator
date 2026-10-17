@@ -30,9 +30,9 @@ namespace lob_bench {
 using namespace lob;
 
 struct FlatPriceLevel {
-    Price            price = 0;
+    Price price = 0;
     std::list<Order> orders;
-    Quantity         total_qty = 0;
+    Quantity total_qty = 0;
 };
 
 class FlatVectorOrderBook {
@@ -47,8 +47,8 @@ public:
             FlatPriceLevel lvl;
             lvl.price = order.price;
             it = levels.insert(it, std::move(lvl));  // O(n) shift -- the
-                                                       // cost this design
-                                                       // trades away.
+                                                     // cost this design
+                                                     // trades away.
         }
         it->orders.push_back(order);
         it->total_qty += order.remaining_qty;
@@ -182,7 +182,7 @@ private:
     // iterator to the matching level, or the correct insertion point if
     // none exists at that exact price.
     static std::vector<FlatPriceLevel>::iterator locate(std::vector<FlatPriceLevel>& levels,
-                                                          Side side, Price price) {
+                                                        Side side, Price price) {
         if (side == Side::Buy) {
             return std::lower_bound(
                 levels.begin(), levels.end(), price,

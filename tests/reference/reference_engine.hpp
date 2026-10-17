@@ -29,22 +29,22 @@ public:
         order.sequence = ++sequence_counter_;
 
         if (order.remaining_qty <= 0) {
-            return ExecutionReport{order.id, OrderStatus::Rejected, 0, 0, {},
-                                    RejectReason::ZeroQuantity};
+            return ExecutionReport{order.id, OrderStatus::Rejected,     0, 0,
+                                   {},       RejectReason::ZeroQuantity};
         }
         if (order.type != OrderType::Market && order.price <= 0) {
-            return ExecutionReport{order.id, OrderStatus::Rejected, 0, 0, {},
-                                    RejectReason::InvalidPrice};
+            return ExecutionReport{order.id, OrderStatus::Rejected,     0, 0,
+                                   {},       RejectReason::InvalidPrice};
         }
         if (findIndex(order.id) != -1) {
-            return ExecutionReport{order.id, OrderStatus::Rejected, 0, 0, {},
-                                    RejectReason::DuplicateId};
+            return ExecutionReport{order.id, OrderStatus::Rejected,    0, 0,
+                                   {},       RejectReason::DuplicateId};
         }
 
         if (order.type == OrderType::FOK) {
             if (aggregateFillable(order) < order.remaining_qty) {
-                return ExecutionReport{order.id, OrderStatus::Rejected, 0, 0, {},
-                                        RejectReason::FOKUnfillable};
+                return ExecutionReport{order.id, OrderStatus::Rejected,      0, 0,
+                                       {},       RejectReason::FOKUnfillable};
             }
         }
 
@@ -59,14 +59,14 @@ public:
             report.status = OrderStatus::Filled;
             report.remaining_qty = 0;
         } else if (order.type == OrderType::Limit) {
-            order.status = (report.filled_qty > 0) ? OrderStatus::PartiallyFilled
-                                                     : OrderStatus::New;
+            order.status =
+                (report.filled_qty > 0) ? OrderStatus::PartiallyFilled : OrderStatus::New;
             orders_.push_back(order);
             report.status = order.status;
             report.remaining_qty = order.remaining_qty;
         } else {
-            report.status = (report.filled_qty > 0) ? OrderStatus::PartiallyFilled
-                                                      : OrderStatus::Cancelled;
+            report.status =
+                (report.filled_qty > 0) ? OrderStatus::PartiallyFilled : OrderStatus::Cancelled;
             report.remaining_qty = 0;
         }
         return report;
@@ -75,8 +75,7 @@ public:
     ExecutionReport cancel(OrderId id) {
         int idx = findIndex(id);
         if (idx == -1) {
-            return ExecutionReport{id, OrderStatus::Rejected, 0, 0, {},
-                                    RejectReason::UnknownOrder};
+            return ExecutionReport{id, OrderStatus::Rejected, 0, 0, {}, RejectReason::UnknownOrder};
         }
         Order removed = orders_[static_cast<std::size_t>(idx)];
         orders_.erase(orders_.begin() + idx);
@@ -98,19 +97,18 @@ public:
     ExecutionReport replace(const ReplaceRequest& req) {
         int idx = findIndex(req.id);
         if (idx == -1) {
-            return ExecutionReport{req.id, OrderStatus::Rejected, 0, 0, {},
-                                    RejectReason::UnknownOrder};
+            return ExecutionReport{req.id, OrderStatus::Rejected,     0, 0,
+                                   {},     RejectReason::UnknownOrder};
         }
         if (!req.new_price && !req.new_qty) {
             const Order& cur = orders_[static_cast<std::size_t>(idx)];
-            return ExecutionReport{req.id, cur.status, 0, cur.remaining_qty, {},
-                                    RejectReason::None};
+            return ExecutionReport{req.id, cur.status,        0, cur.remaining_qty,
+                                   {},     RejectReason::None};
         }
 
         Order cur = orders_[static_cast<std::size_t>(idx)];
         bool price_changed = req.new_price && *req.new_price != cur.price;
-        bool strict_decrease =
-            req.new_qty && *req.new_qty > 0 && *req.new_qty < cur.remaining_qty;
+        bool strict_decrease = req.new_qty && *req.new_qty > 0 && *req.new_qty < cur.remaining_qty;
 
         if (!price_changed && strict_decrease) {
             orders_[static_cast<std::size_t>(idx)].remaining_qty = *req.new_qty;
@@ -125,7 +123,7 @@ public:
 
         orders_.erase(orders_.begin() + idx);
         Order new_order(req.id, cur.side, cur.type, req.new_price.value_or(cur.price),
-                         req.new_qty.value_or(cur.remaining_qty));
+                        req.new_qty.value_or(cur.remaining_qty));
         return submit(new_order);
     }
 
@@ -144,7 +142,7 @@ private:
     static bool crosses(const Order& aggressor, Price resting_price) {
         if (aggressor.type == OrderType::Market) return true;
         return aggressor.side == Side::Buy ? aggressor.price >= resting_price
-                                            : aggressor.price <= resting_price;
+                                           : aggressor.price <= resting_price;
     }
 
     // Finds the single best (price-time priority) resting order on the
@@ -192,7 +190,7 @@ private:
             Quantity trade_qty = std::min(order.remaining_qty, resting.remaining_qty);
 
             trades.push_back(Trade{++trade_id_counter_, order.id, resting.id, resting.price,
-                                    trade_qty, order.sequence});
+                                   trade_qty, order.sequence});
             order.remaining_qty -= trade_qty;
             resting.remaining_qty -= trade_qty;
             if (resting.remaining_qty == 0) {
