@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    name: Build & test (${{ matrix.compiler }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [g++, clang++]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ clang
+
+      - name: Configure
+        run: |
+          cmake -B build -DCMAKE_CXX_COMPILER=${{ matrix.compiler }} \
+                -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Run tests (unit + property + differential)
+        working-directory: build
+        run: ctest --output-on-failure --verbose
+
+  sanitizers:
+    name: Sanitizers (${{ matrix.sanitize }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitize: ["address,undefined"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++
+
+      - name: Configure (sanitizer build)
+        run: |
+          cmake -B build-san -DSANITIZE="${{ matrix.sanitize }}" \
+                -DCMAKE_BUILD_TYPE=RelWithDebInfo
+
+      - name: Build
+        run: cmake --build build-san --parallel
+
+      - name: Run tests under sanitizers
+        working-directory: build-san
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ctest --output-on-failure --verbose
+
+  format-check:
+    name: clang-format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install clang-format
+        run: sudo apt-get update && sudo apt-get install -y clang-format
+      - name: Check formatting
+        run: |
+          find include src tests -name '*.hpp' -o -name '*.cpp' | \
+            xargs clang-format --dry-run --Werror
+
+  static-analysis:
+    name: clang-tidy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y cmake clang-tidy clang
+      - name: Configure (generates compile_commands.json)
+        run: cmake -B build -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+      - name: Run clang-tidy
+        run: |
+          find include src -name '*.cpp' -o -name '*.hpp' | \
+            xargs clang-tidy -p build

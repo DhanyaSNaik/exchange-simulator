@@ -1,0 +1,21 @@
+---
+# Enabled check families: correctness, modern-C++ usage (matches the
+# "RAII / STL / templates" signal this project is built to demonstrate),
+# and performance footguns. bugprone/cert/cppcoreguidelines catch exactly
+# the lifetime/ownership classes of bug this project cares about most.
+Checks: >
+  -*,
+  bugprone-*,
+  cert-*,
+  cppcoreguidelines-*,
+  modernize-*,
+  performance-*,
+  readability-*,
+  -modernize-use-trailing-return-type,
+  -readability-magic-numbers,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -readability-identifier-length
+
+WarningsAsErrors: ''
+HeaderFilterRegex: 'include/lob/.*'
+FormatStyle: file
