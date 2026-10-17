@@ -71,6 +71,44 @@ All 41 unit tests, 100 x 3,000-event property streams (150,000 events),
 and 50 x 300-event differential streams were run under this build with
 zero ASan or UBSan reports.
 
+## Phase 3: market data replay
+
+- **Unit tests** (`test_csv_event_reader.cpp`, 10 cases): one per event
+  kind parsed correctly, file_order assigned by row position (not
+  timestamp), every named parse-error condition from the file-level
+  comment in `csv_event_reader.hpp` (missing/wrong header, wrong column
+  count, unrecognized event kind, unparseable number, a value present
+  where the kind requires it blank, invalid side/type) -- each confirmed
+  fatal regardless of anything else, per the "parse errors are always
+  fatal" decision in `DESIGN_DECISIONS.md`.
+- **Unit tests** (`test_simulation_loop.cpp`, 12 cases): NEW/CANCEL/
+  TRADE application, timestamp-then-file_order sort ordering (including a
+  case specifically constructed so file_order and vector order disagree,
+  to actually distinguish correct tie-breaking from an accidental
+  pass), `strict_mode` true (stops immediately, applied uniformly across
+  NEW/CANCEL/TRADE rejections) and false (logs and continues),
+  `applyExternalTrade`'s failure modes and its aggressor-id-0 sentinel,
+  and the "feed's reported price is authoritative, not the book's own
+  price" behavior.
+- **End-to-end property test** (`replay_property_test.cpp`): satisfies
+  the Phase 3 stop condition directly. Random event streams are
+  serialized to the actual CSV **text** format (not handed to
+  `SimulationLoop` as in-memory structs), parsed back via
+  `parseCsvEvents()`, replayed through `SimulationLoop(strict_mode=false)`
+  against a real `MatchingEngine`, with every Phase 0 invariant checked
+  (via `OrderBook::checkInvariants()`) after **every single dispatched
+  event**. `strict_mode=false` is used here specifically so a long
+  randomized stream keeps running past the random ids/quantities'
+  frequent (expected) rejections, rather than stopping at the first one.
+  Verified clean at 500 streams x 1,000 events (500,000 events) and,
+  separately, under ASan+UBSan at 100 streams x 500 events (50,000
+  events). This test's own CSV serializer had a real bug (see
+  `DESIGN_DECISIONS.md`'s "a real bug the end-to-end property test
+  caught" entry) caught on its very first run -- left in the history
+  rather than quietly fixed and forgotten, since it's a good illustration
+  of why the round-trip-through-real-text-format design was worth the
+  extra effort over a narrower in-memory-only test.
+
 ## Known gaps (Phase 1, honest accounting)
 
 - `clang-format`/`clang-tidy` are specified (`.clang-format`, `.clang-tidy`)

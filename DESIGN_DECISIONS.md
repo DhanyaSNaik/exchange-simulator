@@ -191,6 +191,97 @@ identically before and after -- this change alters cost, not behavior,
 and the differential test against the untouched reference engine is what
 makes that claim checkable rather than assumed.
 
+## Phase 3: Trade is its own event kind, not a NewOrder that happens to match
+
+**Considered:** modeling every replay event uniformly as something fed
+through `MatchingEngine::submit()`, including recorded executions.
+
+**Chose:** a separate `EventKind::Trade`, applied via a new
+`MatchingEngine::applyExternalTrade(resting_id, qty, price)` that
+directly reduces a named resting order and records a `Trade`, without
+running `submit()`'s crossing logic at all.
+
+**Because:** a real market-data feed (LOBSTER being the canonical named
+example) reports an execution as "resting order X was hit for quantity
+Y" -- it does not hand you a resubmittable aggressor order, because the
+aggressor's identity is typically anonymized or simply absent from the
+public feed. There is no honest way to replay that kind of record through
+`submit()`, since `submit()` requires an aggressor order that the data
+doesn't contain. Synthetic `NewOrder` events (ones we generate ourselves,
+with no "real" aggressor to be faithful to) still go through `submit()`
+and get matched by the engine's own logic -- the two paths exist for two
+genuinely different kinds of input, not as a stylistic choice.
+
+`Trade.aggressor_id` is set to the reserved sentinel `0` for every trade
+produced this way (0 is never a valid caller-assigned `OrderId`
+elsewhere in the engine, so this is safe to treat as "no aggressor order
+exists for this trade").
+
+## Phase 3: `SimulationLoop` defaults to `strict_mode = true`, applied uniformly across every event kind
+
+**Considered:** defaulting to "skip and log" (continue past a rejected
+event, recording it in the report) versus "fail fast" (stop the run at
+the first rejection).
+
+**Chose:** fail-fast by default (`strict_mode = true`), with
+`strict_mode = false` as an explicit opt-in for exploratory work on a
+known-messy feed.
+
+**Because:** this project's whole posture, stated at the outset, is
+correctness-first. A replay loop that silently reconstructs a *partial*
+book state and calls it done is the one place that principle would be
+violated by default behavior, not just risked by an edge case -- a
+silently-wrong reconstruction looks like a complete, trustworthy result
+right up until someone notices the numbers don't add up. "Skip and log"
+earns its place as an opt-in for a specific, nameable use case (a known-
+messy real-world dump, where best-effort reconstruction with a visible
+list of what was dropped is genuinely what's wanted), not as the default
+for a project built around correctness.
+
+This is applied **uniformly** across every event kind -- a rejected
+`NEW` (bad price/qty/duplicate id) or a `CANCEL`/`REPLACE` against an
+unknown id stops the run exactly like a bad `TRADE` row would, rather
+than only `applyExternalTrade` failures being treated as stoppable.
+Special-casing only one event kind would have been an arbitrary
+inconsistency, not a principled distinction -- a rejected `NEW` is just
+as much a data-quality signal from the feed as a bad `TRADE` row.
+
+**A separate, narrower decision in the same area:** file-format/parse
+errors (wrong column count, unparseable number, unrecognized event kind)
+are **always** fatal, regardless of `strict_mode` -- thrown by
+`parseCsvEvents()` before any event reaches `SimulationLoop` at all.
+`strict_mode` governs what to do when an otherwise well-formed event
+can't be cleanly *applied*; it does not govern whether the file itself is
+readable. Conflating the two would let a flag meant for row-level
+data-quality issues silently paper over a whole-file problem (wrong file,
+corrupted download, mismatched header).
+
+## Phase 3: a real bug the end-to-end property test caught before it shipped
+
+While writing `tests/property/replay_property_test.cpp` (random events ->
+serialized to the actual CSV text format -> parsed back via
+`parseCsvEvents()` -> replayed through `SimulationLoop` -> invariants
+checked after every dispatched event), the test's own CSV serializer had
+an off-by-one bug: the `Cancel` and `ClockTick` row templates had one
+extra trailing comma each, producing 9 columns instead of 8. Every single
+one of the first 200 random streams failed immediately on the CSV
+round-trip step, since nearly every stream contains cancels and the
+generator always appends a few `ClockTick` rows.
+
+This is recorded here deliberately, not edited out of the history, for
+two reasons. First, it's honest: catching a bug is normal and expected,
+and a design-decisions log that only ever shows clean first-try
+implementations would be less credible, not more. Second, it's a good
+illustration of *why* the end-to-end property test (CSV text round-trip,
+not just in-memory `OrderFlowEvent` structs handed directly to
+`SimulationLoop`) was worth building as specified in the Phase 3 brief --
+a narrower test that skipped CSV serialization entirely would never have
+exercised the actual text format and would have missed this class of bug
+completely. The fix was two one-character comma-count corrections;
+verified against a small Python script computing exact field counts
+rather than re-counting by eye a second time, after hand-counting commas
+turned out to be the root cause of the bug in the first place.
+
 ## `ExecutionReport` gained a `sequence` field, after initial implementation
 
 **Surfaced closing out Phase 1:** `ExecutionReport` had no way to expose

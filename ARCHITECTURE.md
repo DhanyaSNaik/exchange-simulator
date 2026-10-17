@@ -88,6 +88,39 @@ specific order. `std::list` gives the needed guarantee (erasing one node
 never invalidates iterators to others) at the cost of worse cache locality
 than `deque`. Correctness first, per the project's stated ground rule.
 
+## Phase 3: market data replay (`replay/` -> `include/lob/replay_event.hpp`, `csv_event_reader.hpp`, `simulation_loop.hpp`)
+
+One-directional dependency: `SimulationLoop` depends on `MatchingEngine`;
+nothing in Phase 1/2 depends on replay. The module can be deleted without
+touching the engine.
+
+- `OrderFlowEvent` / `EventKind` -- the five event kinds (`NewOrder`,
+  `Cancel`, `Replace`, `Trade`, `ClockTick`). `Trade` is deliberately
+  **not** a `NewOrder` that happens to match -- see
+  `DESIGN_DECISIONS.md` for why a real feed's reported executions can't
+  be faithfully replayed through `submit()` at all.
+- `parseCsvEvents()` -- parses the synthetic CSV format documented at the
+  top of `csv_event_reader.hpp`. Any file-format problem (wrong header,
+  wrong column count, unparseable value) throws `CsvParseError`
+  **unconditionally** -- this is never governed by `SimulationLoop`'s
+  `strict_mode`, which is about a different kind of problem (see below).
+- `SimulationLoop::run()` sorts events by `(timestamp_ns, file_order)` --
+  the latter breaking ties for events sharing a timestamp -- then
+  dispatches each in that order. `strict_mode` (default `true`) decides
+  whether a *rejected* event (bad `NEW`, unknown-id `CANCEL`/`REPLACE`,
+  or an unresolvable `TRADE`) stops the run or is logged and skipped;
+  applied uniformly across every event kind, not just `Trade`.
+- `MatchingEngine::applyExternalTrade(resting_id, qty, price)` -- the one
+  growth to the Phase 1/2 engine's own public interface this phase
+  required. Directly reduces a named resting order and records a `Trade`
+  with `aggressor_id = 0` (a reserved sentinel), bypassing
+  `submit()`'s crossing logic entirely, because there is no aggressor
+  order to match against in a replayed execution record.
+- Latency instrumentation (`setLatencyHook`) and a tick hook
+  (`setTickHook`) are measurement/subscription points only -- no delay is
+  injected, and no hooks are registered by Phase 3 itself. They exist for
+  Phase 4's agents to consume.
+
 ## Why `frontOfBook`/`get` return copies, not pointers
 
 Early in Phase 1 API design, `frontOfBook` was going to return `Order*`

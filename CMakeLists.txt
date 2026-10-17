@@ -21,6 +21,8 @@ endif()
 add_library(lob_core
   src/order_book.cpp
   src/matching_engine.cpp
+  src/csv_event_reader.cpp
+  src/simulation_loop.cpp
 )
 target_include_directories(lob_core PUBLIC include)
 
@@ -32,6 +34,8 @@ add_executable(unit_tests
   tests/unit/test_matching_engine.cpp
   tests/unit/test_adversarial.cpp
   tests/unit/test_sequence_monotonicity.cpp
+  tests/unit/test_csv_event_reader.cpp
+  tests/unit/test_simulation_loop.cpp
 )
 target_include_directories(unit_tests PRIVATE tests)
 target_link_libraries(unit_tests PRIVATE lob_core)
@@ -43,6 +47,10 @@ target_link_libraries(property_test PRIVATE lob_core)
 # full-scale (100k/1M/10M) event-stream numbers, which are a separate,
 # non-assertion-checking benchmark binary, not this correctness test.
 add_test(NAME property_test COMMAND property_test 300 1000 1234567)
+
+add_executable(replay_property_test tests/property/replay_property_test.cpp)
+target_link_libraries(replay_property_test PRIVATE lob_core)
+add_test(NAME replay_property_test COMMAND replay_property_test 200 300 90000)
 
 add_executable(differential_test
   tests/reference/test_differential.cpp

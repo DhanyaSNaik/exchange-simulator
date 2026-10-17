@@ -180,6 +180,30 @@ ExecutionReport MatchingEngine::replace(const ReplaceRequest& req) {
     return submit(new_order);
 }
 
+std::optional<Trade> MatchingEngine::applyExternalTrade(OrderId resting_id, Quantity qty,
+                                                        Price price) {
+    if (qty <= 0) return std::nullopt;
+
+    auto current = book_.get(resting_id);
+    if (!current || qty > current->remaining_qty) {
+        return std::nullopt;  // data-quality problem in the replay source
+    }
+
+    // reduceQuantity, not submit() -- there is no aggressor order here,
+    // just a recorded effect on an order that is already resting.
+    if (!book_.reduceQuantity(resting_id, qty)) return std::nullopt;
+
+    Trade t;
+    t.trade_id = ++trade_id_counter_;
+    t.aggressor_id = 0;  // sentinel: no aggressor order in this replay
+    t.resting_id = resting_id;
+    t.price = price;  // the feed's reported execution price, not necessarily book_'s
+    t.quantity = qty;
+    t.sequence = ++sequence_counter_;  // still consumes a sequence number,
+                                       // same monotonicity discipline as submit()
+    return t;
+}
+
 std::optional<Price> MatchingEngine::spread() const {
     auto b = book_.bestBid();
     auto a = book_.bestAsk();

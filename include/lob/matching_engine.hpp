@@ -28,6 +28,28 @@ public:
     };
     ExecutionReport replace(const ReplaceRequest& req);
 
+    // Directly reduces a RESTING order (by id) by `qty`, producing a
+    // Trade record, WITHOUT running submit()'s crossing/matching logic --
+    // there is no aggressor order to match against. This exists for
+    // market-data replay (Phase 3): a real feed reports "resting order X
+    // was hit for qty Y," not an aggressor order you could resubmit (the
+    // aggressor is typically anonymized or absent from the public feed
+    // entirely). `price` is the execution price to record on the Trade;
+    // it is NOT required to equal the resting order's own price (a
+    // replayed feed's reported execution price is authoritative for the
+    // log, even if it differs from this book's reconstructed state --
+    // that mismatch is itself a signal worth being able to observe, not
+    // something to silently override).
+    //
+    // Fails (returns nullopt) if `resting_id` isn't currently resting, or
+    // if `qty` is non-positive or exceeds its remaining_qty -- both are
+    // data-quality problems in the replay source, never silently
+    // clamped. Trade::aggressor_id is 0 for every trade produced this
+    // way: a reserved sentinel meaning "no aggressor order exists in
+    // this replay" (0 is never a valid caller-assigned OrderId
+    // elsewhere in this engine).
+    std::optional<Trade> applyExternalTrade(OrderId resting_id, Quantity qty, Price price);
+
     // --- read-only analytics, delegating to the OrderBook ---
     std::optional<Price> bestBid() const { return book_.bestBid(); }
     std::optional<Price> bestAsk() const { return book_.bestAsk(); }
