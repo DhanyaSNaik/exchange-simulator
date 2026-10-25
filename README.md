@@ -192,6 +192,12 @@ not as an apology:
 - **Research / analytics module** (Python, layered on top -- deliberately
   not mixed with the C++ engine; see the project's original scope
   decision in `DESIGN_DECISIONS.md`).
+- **Reinforcement learning agents** -- a materially different approach
+  from the rule-based market maker here (learned policy vs. hand-specified
+  quoting logic), not an extension of it.
+- **DuckDB/Polars research infrastructure** -- deliberately a separate
+  project, not something to bolt onto this one; this repo is the C++
+  exchange simulator, not a research platform.
 - **GPU / Rust stretch goals.**
 
 None of the above will be built unless a specific, demonstrated need
