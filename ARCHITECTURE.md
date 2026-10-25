@@ -1,6 +1,48 @@
 # Architecture
 
-## Module boundary
+## Module tree (current, all four phases)
+
+```
+include/lob/
+  order.hpp              Phase 1 -- Order, Trade, ExecutionReport (pure data)
+  order_book.hpp         Phase 1 -- OrderBook: storage, FIFO, lookup-by-id
+  matching_engine.hpp    Phase 1 -- MatchingEngine: all order-type semantics
+                          + Phase 3's applyExternalTrade
+  replay_event.hpp       Phase 3 -- OrderFlowEvent, EventKind
+  csv_event_reader.hpp   Phase 3 -- CSV parsing
+  simulation_loop.hpp    Phase 3 -- SimulationLoop: deterministic replay
+  market_maker.hpp       Phase 4 -- MarketMakerAgent
+  market_session.hpp     Phase 4 -- MarketSession: fill detection
+  analytics.hpp          Phase 4 -- trade-sign, OFI, realized vol
+
+src/                     Implementations of the above, 1:1
+
+bench/                   Phase 2 -- FlatVectorOrderBook/FlatMatchingEngine
+                          (the naive-vs-optimized comparison point; never
+                          promoted into include/lob/ -- see DESIGN_DECISIONS.md)
+
+examples/                Phase 5 -- runnable end-to-end demos + sample
+                          order-flow CSV files
+
+tests/
+  unit/                  Discrete, named cases, one behavior each
+  property/              Randomized event streams, invariants checked
+                          after every single event
+  reference/              Differential testing against a deliberately
+                          naive, obviously-correct reference engine
+```
+
+Each phase's module depends only on what came before it, never the
+reverse: `OrderBook` knows nothing about matching semantics;
+`MatchingEngine` knows nothing about replay or agents; `SimulationLoop`
+knows nothing about agents. Each of Phase 3's and Phase 4's modules could
+be deleted without touching anything from an earlier phase.
+
+---
+
+## Phase 1: the matching engine
+
+### Module boundary
 
 `OrderBook` (storage: price levels, FIFO, lookup-by-id) knows nothing about
 order-type semantics. `MatchingEngine` (Market/Limit/IOC/FOK, cancel,
@@ -8,33 +50,26 @@ replace, trade generation) owns all of that and treats `OrderBook` as a
 correct, dumb storage layer it calls into. This boundary is what let
 `OrderBook` be unit-tested in complete isolation (`test_order_book.cpp`)
 from matching logic, and is the seam along which Phase 2's naive-vs-
-optimized data structure comparison will happen without touching
+optimized data structure comparison happened without touching
 `MatchingEngine` at all.
 
-```
-orders/            -> include/lob/order.hpp            (pure data, no behavior)
-order_book/        -> include/lob/order_book.hpp + src/order_book.cpp
-matching_engine/   -> include/lob/matching_engine.hpp + src/matching_engine.cpp
-tests/             -> unit/, property/, reference/ (differential naive engine)
-```
-
-## Core types
+### Core types
 
 - `Order` -- id, side, type, price, original/remaining quantity, engine-
   assigned sequence, status.
 - `Trade` -- trade id, aggressor id, resting id, price (always the resting
-  side's), quantity, sequence.
+  side's), quantity, sequence, and (Phase 4) aggressor side.
 - `ExecutionReport` -- what `submit`/`cancel`/`replace` return: status,
-  filled/remaining quantity, trades, reject reason.
+  filled/remaining quantity, trades, reject reason, sequence.
 - `PriceLevel` -- a price and a `std::list<Order>` (not `std::deque`; see
-  DESIGN_DECISIONS.md for why) plus a cached `total_qty`.
+  below) plus a cached `total_qty`.
 - `OrderBook` -- `std::map<Price, PriceLevel>` for each side (opposite
   comparators so `begin()` is always "best price" on both), plus
   `std::unordered_map<OrderId, Locator>` for O(1)-average lookup/cancel.
 - `MatchingEngine` -- owns one `OrderBook`, a sequence counter, a trade-id
   counter, and all order-type semantics.
 
-## Order submission -> match -> trade generation
+### Order submission -> match -> trade generation
 
 1. `submit(order)` assigns the next sequence number -- every event
    consumes one, including rejected ones (monotonicity, not "only valid
@@ -48,17 +83,18 @@ tests/             -> unit/, property/, reference/ (differential naive engine)
    (`FOKUnfillable`) with zero book mutation -- this is what makes FOK
    atomic across multiple price levels rather than leaving a partial fill
    committed if insufficient liquidity is discovered partway through a
-   sweep.
+   sweep. (This scan had a real performance bug, fixed in Phase 2 -- see
+   `DESIGN_DECISIONS.md`. Its correctness, decided here, was never in
+   question; only its cost was.)
 4. `matchAggressive(order)` walks the opposite side's best-price-first
    orders, generating one `Trade` per resting order consumed (fully or
    partially), mutating the book by **id** via `OrderBook::reduceQuantity`
-   (never through a pointer/reference into the book -- see
-   DESIGN_DECISIONS.md).
+   (never through a pointer/reference into the book -- see below).
 5. Any quantity left over: a `Limit` order rests the remainder in the
    book; `Market`/`IOC`/`FOK` orders never rest -- the remainder (if any)
    is discarded.
 
-## Cancel and replace
+### Cancel and replace
 
 - **Cancel**: look up by id (`OrderBook::remove`), which does FIFO-
   preserving erase-from-list plus empty-level cleanup internally. Unknown
@@ -74,7 +110,7 @@ tests/             -> unit/, property/, reference/ (differential naive engine)
   it means a replace whose new price now crosses the book trades
   immediately instead of silently re-resting at a crossing price.
 
-## Why `std::list`, not `std::deque`, for a price level
+### Why `std::list`, not `std::deque`, for a price level
 
 `std::deque::erase` invalidates iterators and references to *all* elements
 at or after the erase point (only `push_back`/`pop_front` at the very ends
@@ -88,11 +124,37 @@ specific order. `std::list` gives the needed guarantee (erasing one node
 never invalidates iterators to others) at the cost of worse cache locality
 than `deque`. Correctness first, per the project's stated ground rule.
 
-## Phase 3: market data replay (`replay/` -> `include/lob/replay_event.hpp`, `csv_event_reader.hpp`, `simulation_loop.hpp`)
+### Why `frontOfBook`/`get` return copies, not pointers
+
+Early in Phase 1 API design, `frontOfBook` was going to return `Order*`
+into the book's internal list node, to avoid a copy on every match
+iteration. Rejected before implementation: the matching loop would be
+holding a pointer into a container it mutates (via `reduceQuantity`) in
+the same loop iteration, and the safety of that pointer would depend on an
+unenforced call-order convention ("read the quantity before you mutate the
+same node") rather than on anything the type system checks. `Order` is a
+handful of scalars, so the copy is not costly, and all book mutation after
+reading a copy happens strictly by id (`reduceQuantity(id, qty)`,
+`remove(id)`), never through the copy itself.
+
+---
+
+## Phase 2: benchmarking (not a module -- see `BENCHMARKS.md`)
+
+No new production module; `bench/` holds the `FlatVectorOrderBook` /
+`FlatMatchingEngine` comparison point and the benchmark harness. The one
+real code change to the Phase 1 engine was `OrderBook::forEachLevelWhile`,
+fixing a redundant full-side scan that benchmarking surfaced -- see
+`DESIGN_DECISIONS.md` for why that fix mattered more than the container
+swap it was initially benchmarked against.
+
+---
+
+## Phase 3: market data replay
 
 One-directional dependency: `SimulationLoop` depends on `MatchingEngine`;
-nothing in Phase 1/2 depends on replay. The module can be deleted without
-touching the engine.
+nothing from Phase 1/2 depends on replay. The module can be deleted
+without touching the engine.
 
 - `OrderFlowEvent` / `EventKind` -- the five event kinds (`NewOrder`,
   `Cancel`, `Replace`, `Trade`, `ClockTick`). `Trade` is deliberately
@@ -119,9 +181,11 @@ touching the engine.
 - Latency instrumentation (`setLatencyHook`) and a tick hook
   (`setTickHook`) are measurement/subscription points only -- no delay is
   injected, and no hooks are registered by Phase 3 itself. They exist for
-  Phase 4's agents to consume.
+  Phase 4's agent.
 
-## Phase 4: market maker agent + analytics (`include/lob/market_maker.hpp`, `market_session.hpp`, `analytics.hpp`)
+---
+
+## Phase 4: market maker agent + analytics
 
 - `MarketMakerAgent` holds its own `MatchingEngine&` and manages its own
   two-sided quote directly (`onTick()` cancels and reposts both sides,
@@ -148,15 +212,16 @@ touching the engine.
   the asymmetry between those two windows is deliberate, not an
   oversight; see `DESIGN_DECISIONS.md`.
 
-## Why `frontOfBook`/`get` return copies, not pointers
+---
 
-Early in Phase 1 API design, `frontOfBook` was going to return `Order*`
-into the book's internal list node, to avoid a copy on every match
-iteration. Rejected before implementation: the matching loop would be
-holding a pointer into a container it mutates (via `reduceQuantity`) in
-the same loop iteration, and the safety of that pointer would depend on an
-unenforced call-order convention ("read the quantity before you mutate the
-same node") rather than on anything the type system checks. `Order` is a
-handful of scalars, so the copy is not costly, and all book mutation after
-reading a copy happens strictly by id (`reduceQuantity(id, qty)`,
-`remove(id)`), never through the copy itself.
+## Phase 5: examples (not a module)
+
+`examples/replay_demo.cpp` and `examples/market_maker_demo.cpp` are
+glue code, not library additions -- they compose Phases 1/3 and 1/3/4
+respectively, using only existing public interfaces. `market_maker_demo`
+specifically does NOT use `SimulationLoop` (which is deliberately
+agent-ignorant); it repeats `SimulationLoop`'s own sort-then-dispatch
+logic locally, routed through `MarketSession` instead of a bare
+`MatchingEngine`. See the file's own header comment for why that
+duplication is in the example rather than promoted into the library --
+Phase 5's brief is explicit that no new features are added in this phase.

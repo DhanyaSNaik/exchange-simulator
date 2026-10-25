@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(limit_order_book LANGUAGES CXX)
+project(exchange_simulator LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -82,3 +82,11 @@ target_compile_options(run_benchmark PRIVATE -O3 -DNDEBUG)
 # Not added via add_test(): this is a benchmark, not a pass/fail
 # correctness check. Run manually: ./run_benchmark <n> <seed> <map|flat>,
 # or bench/run_benchmarks.sh <path-to-binary> <seed> to sweep all scales.
+
+# --- Phase 5: example/demo programs (examples/). Not tests -- these are
+# the runnable, end-to-end demonstrations referenced from README.md.
+add_executable(replay_demo examples/replay_demo.cpp)
+target_link_libraries(replay_demo PRIVATE lob_core)
+
+add_executable(market_maker_demo examples/market_maker_demo.cpp)
+target_link_libraries(market_maker_demo PRIVATE lob_core)

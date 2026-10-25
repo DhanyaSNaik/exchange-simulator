@@ -21,11 +21,15 @@
 
 ## Unit tests vs. property tests vs. differential tests
 
-- **Unit tests** (`tests/unit/`, 41 cases) are named, discrete,
-  known-input/known-output: one behavior per test, including 4 adversarial
-  cases surfaced by reasoning about *interactions* between features
-  (replace + crossed-book invariant, cancel + id reuse, FOK + partial-level
-  consumption, Market + garbage price field).
+- **Unit tests** (`tests/unit/`, 95 cases across Phases 1-4) are named,
+  discrete, known-input/known-output: one behavior per test. Phase 1
+  includes 4 adversarial cases surfaced by reasoning about
+  *interactions* between features (replace + crossed-book invariant,
+  cancel + id reuse, FOK + partial-level consumption, Market + garbage
+  price field). Phase 3 adds CSV-reader and `SimulationLoop` coverage;
+  Phase 4 adds the market-maker agent, PnL, `MarketSession`, and
+  analytics coverage, plus the hand-calculated gate scenario -- see
+  "Phase 4" below for all of these in detail.
 - **Property tests** (`tests/property/property_test.cpp`) generate random
   submit/cancel/replace event streams and call
   `OrderBook::checkInvariants()` after *every single event*, not just at
@@ -67,9 +71,10 @@ g++ -std=c++17 -g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer \
 ./unit_tests_san
 ```
 
-All 41 unit tests, 100 x 3,000-event property streams (150,000 events),
+All 95 unit tests, 100 x 3,000-event property streams (150,000 events),
 and 50 x 300-event differential streams were run under this build with
-zero ASan or UBSan reports.
+zero ASan or UBSan reports -- re-verified after each phase's additions,
+not just once at the start.
 
 ## Phase 3: market data replay
 
@@ -151,12 +156,19 @@ zero ASan or UBSan reports.
   PnL update together, which is what the brief's stop condition actually
   asked to be validated.
 
-## Known gaps (Phase 1, honest accounting)
+## Known gaps (honest accounting)
 
-- `clang-format`/`clang-tidy` are specified (`.clang-format`, `.clang-tidy`)
-  and wired into CI, but could not be run in this sandbox (no network
-  access to install either tool locally). They will run for real on the
-  first CI push; this is flagged rather than silently assumed clean.
+- `clang-format`/`clang-tidy` could not be run in the development
+  sandbox this project was built in (no network access to install
+  either tool there). They were, however, run for real: on the first
+  actual CI push, `format-check` initially failed (the hand-written
+  source didn't match `.clang-format`'s rules -- expected, since it had
+  never been run against them), was fixed by running `clang-format -i`
+  locally and re-pushing, and both `format-check` and `clang-tidy` have
+  been green on every push since, across all five phases. This is noted
+  here rather than silently omitted specifically so the gap between
+  "built without the tool" and "verified with the tool" is visible,
+  including the one real round-trip where it caught something.
 - The property harness's invariant walk is itself O(n) per event, so a
   very long single stream (not yet attempted beyond ~2M events total
   across streams) would start to dominate wall-clock time; this is a

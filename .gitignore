@@ -1,0 +1,16 @@
+# CMake build directories
+build/
+build-*/
+cmake-build-*/
+
+# Compiled objects / binaries
+*.o
+*.obj
+*.exe
+compile_commands.json
+
+# Editor/OS noise
+.vscode/
+.idea/
+.DS_Store
+*.swp

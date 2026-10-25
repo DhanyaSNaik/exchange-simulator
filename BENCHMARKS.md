@@ -1,5 +1,23 @@
 # Benchmarks
 
+## Reproducing these results
+
+```sh
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --target run_benchmark
+./build/run_benchmark <num_events> <seed> <map|flat>     # single run
+bench/run_benchmarks.sh ./build/run_benchmark <seed>      # full 100k/1M/10M sweep, both engines
+```
+
+`<seed>` fixes the synthetic event stream (see `bench/event_generator.hpp`
+for the generator itself) so a given seed reproduces the identical
+sequence of events on any machine; the absolute throughput/latency
+numbers will still vary with the host's hardware (these were produced on
+a single-vCPU sandbox -- see the machine note below -- so they are
+directional, not something to expect to match exactly elsewhere).
+`run_benchmark` is not registered as a CI test (`add_test`); it is a
+benchmark, not a pass/fail correctness check, and is run manually.
+
 ## Methodology
 
 **Event generation.** `bench/event_generator.hpp` produces a synthetic

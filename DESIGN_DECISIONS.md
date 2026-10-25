@@ -1,11 +1,38 @@
 # Design Decisions
 
-A running log: considered X, chose Y, because Z, revisit if [condition].
-Phase 0's alternatives analysis and invariant list are carried forward
-below; Phase 1 entries are what was actually decided once implementation
-started, including a few things that only became visible once code existed.
+A running log, organized by phase in build order: considered X, chose Y,
+because Z, revisit if [condition]. Reorganized once, at the end of Phase 5,
+specifically because a handful of entries had landed out of phase order as
+they were written (Phase 4 entries ahead of Phase 3's, a few Phase 1
+entries appended at the very end) -- worth fixing once the whole log exists,
+rather than leaving a first-time reader to reconstruct the real chronology
+themselves.
 
-## Core data structure: order book
+## Index (read this first if you have five minutes, not fifty)
+
+The four decisions most worth an interviewer's attention, in one line each:
+
+1. **`std::list`, not `std::deque`, for price-level storage** -- because
+   `std::deque::erase` invalidates iterators past the erase point, which
+   would silently break the O(1)-cancel design. [Phase 1](#phase-1-core-data-structure-for-the-order-book)
+2. **Fixed the actual `O(L)` FOK dry-run bug instead of swapping to a
+   benchmarked-faster container** -- the container swap would have
+   improved a constant factor on a redundant pass; fixing the redundant
+   pass itself was the bigger, more targeted win. [Phase 2](#phase-2-a-real-fix-beats-a-benchmarked-container-swap)
+3. **A real bug the Phase 3 property test caught on its first run** --
+   kept in this log rather than quietly fixed, because it's the reason
+   the end-to-end (CSV-text-round-trip) test design was worth building.
+   [Phase 3](#phase-3-a-real-bug-the-end-to-end-property-test-caught-before-it-shipped)
+4. **PnL via average-cost, not FIFO lots** -- the standard simplification
+   for a project at this scope, and the thing that makes the hand-
+   calculated gate scenario actually checkable by hand. [Phase 4](#phase-4-pnl-via-average-cost-not-fifo-lot-accounting)
+
+Everything below is the full log, in the order each phase was actually
+built.
+
+---
+
+## Phase 1: Core data structure for the order book
 
 **Considered:** (A) `std::map<Price, PriceLevel>` with `PriceLevel` holding
 either `std::deque<Order>` or `std::list<Order>`; (B) a flat sorted
@@ -32,8 +59,10 @@ events) -- at which point (B) is the planned first experiment, with (C) as
 the stretch target if (B) is still insufficient. The naive-vs-optimized
 comparison in `BENCHMARKS.md` (Phase 2) is specifically built to produce
 the evidence this decision would need to be revisited on.
+(**Resolved in Phase 2** -- see below: the evidence pointed somewhere
+else entirely.)
 
-## `frontOfBook()` / `get()` return a copy, not a pointer or reference
+## Phase 1: `frontOfBook()` / `get()` return a copy, not a pointer or reference
 
 **Considered:** returning `Order*` into the book's internal `std::list`
 node, to avoid a copy on every matching-loop iteration.
@@ -50,10 +79,9 @@ scale, and if it ever does, that's a Phase 2 profiling question, not an
 assumption to design around now.
 
 **Revisit if:** Phase 2 profiling shows the copy itself (not the
-container access pattern) is a measured hot spot -- unlikely, but the
-mechanism to check for it exists once benchmarks do.
+container access pattern) is a measured hot spot -- it didn't.
 
-## Replace semantics: what preserves time priority
+## Phase 1: Replace semantics -- what preserves time priority
 
 **Decided (Phase 0, confirmed):** a strict quantity *decrease* at an
 unchanged price preserves time priority (in-place mutation, same sequence
@@ -75,7 +103,7 @@ spurious trade -- anything that could have crossed with this order while
 it sat resting would already have traded against it before the replace
 request arrived. Pinned by an adversarial test (`test_adversarial.cpp`).
 
-## FOK atomicity: two-pass, not walk-and-mutate
+## Phase 1: FOK atomicity -- two-pass, not walk-and-mutate
 
 **Decided (Phase 0, confirmed):** `aggregateFillable()` sums resting
 liquidity within the order's price limit *without mutating the book* first;
@@ -92,7 +120,11 @@ adversarial test specifically checks that the committing pass stops at a
 *quantity* boundary partway through a price level, not a *level* boundary
 (`test_adversarial.cpp`, the two-price-level FOK case).
 
-## Order id reuse after cancellation
+*(The dry-run pass itself had a real performance bug, fixed in Phase 2 --
+see below. Its correctness, decided here, was never in question; only its
+cost was.)*
+
+## Phase 1: Order id reuse after cancellation
 
 **Surfaced during implementation, not an explicit Phase 0 item:** the
 duplicate-id guard in `submit()` checks only currently-resting orders
@@ -103,7 +135,7 @@ reused by an unrelated later order. Decided this is correct MVP behavior
 need) and pinned it with an adversarial test rather than leaving it as an
 unexamined side effect of how the index happens to be checked.
 
-## Self-trade prevention: out of MVP scope
+## Phase 1: Self-trade prevention -- out of MVP scope
 
 **Decided (Phase 0, confirmed):** no `participant_id` field exists on
 `Order`. Two orders that would cross are matched exactly like any other
@@ -112,59 +144,98 @@ code comments and a dedicated test) as a scope decision, not a gap nobody
 noticed -- adding a `participant_id` and a self-trade-prevention check is
 listed as future work in `README.md`.
 
-## Phase 2: core data structure stays `std::map` + `std::list` (not swapped to the flat vector)
+## Phase 1: `ExecutionReport` gained a `sequence` field, after initial implementation
 
-**Considered:** switching to Phase 0 §2 Option B (`std::vector<PriceLevel>`,
+**Surfaced closing out Phase 1:** `ExecutionReport` had no way to expose
+the sequence number an event consumed, which made sequence-monotonicity
+untestable as a standalone property (it was only checkable indirectly,
+by inference from trade ordering). Added `Sequence sequence = 0;`, with
+`0` meaning "this report didn't consume a new sequence number" (`cancel()`
+and an in-place quantity-decrease `replace()` don't mint one; every
+`submit()` call does, including the internal resubmit inside a
+priority-forfeiting `replace()`). Chosen over, e.g., exposing the engine's
+internal counter directly, since the report is already the public
+per-event result type and this keeps the "what sequence did THIS event
+get" question answerable from the return value alone rather than from
+engine internals.
+
+## Phase 1: custom testing harness over a property-testing library
+
+**Decided (Phase 0, confirmed):** a small, auditable custom
+randomized-event-stream harness (`tests/property/property_test.cpp`),
+rather than adopting RapidCheck, for Phase 1. Gives full control over
+event-shape generation and invariant checking, and is itself a portfolio
+signal (demonstrates understanding of what property testing does, rather
+than depending on a library to do it). RapidCheck (specifically for
+automatic shrinking of failing cases) remains named future work, to be
+adopted only if manually narrowing a failing seed down by hand proves
+genuinely painful in practice -- which has not yet happened, across four
+more phases of testing built the same way.
+
+## Phase 1: differential testing kept in MVP scope
+
+**Decided (Phase 0, confirmed on review):** a deliberately naive, O(n)
+linear-scan reference engine (`tests/reference/reference_engine.hpp`),
+differentially tested against the real engine on identical randomized
+event streams (`tests/reference/test_differential.cpp`). This caught
+nothing wrong in this implementation (all streams matched from first
+correct implementation), but it remains the strongest correctness
+artifact in the repository precisely because it checks the real engine
+against an independently-reasoned-about model rather than against its own
+stated invariants, which could in principle all hold on a wrong answer.
+
+---
+
+## Phase 2: a real fix beats a benchmarked container swap
+
+**Considered:** switching to Phase 0's Option B (`std::vector<PriceLevel>`,
 sorted, binary search), based on `BENCHMARKS.md` showing it ~55% faster at
-10M events.
+10M events than the Phase 1 `std::map`/`std::list` implementation.
 
-**Chose:** keep the Phase 1 `std::map`/`std::list` implementation as the
-real one; Option B stays a bench-only artifact under `bench/`, not
-promoted into `include/lob/`.
+**Chose:** keep the Phase 1 implementation as the real one; Option B stays
+a bench-only artifact under `bench/`, never promoted into `include/lob/`.
 
 **Because:** benchmark instrumentation (per-event-type latency breakdown,
-not just aggregate throughput) showed the actual dominant cost at scale is
+not just aggregate throughput) showed the actual dominant cost at scale was
 `MatchingEngine::aggregateFillable()`'s `O(L)` dry-run scan for FOK
 orders -- not the top-level container's `O(log L)` lookup complexity,
 which is what switching to a flat vector would address. Level count only
 grew ~4.3x from 1M to 10M events, which doesn't explain a 55% throughput
 gap on `O(log L)` grounds alone; the FOK-submit-specific latency breakdown
 (4.9x -> 17.4x mean-latency ratio vs. other submits, map+list, 1M -> 10M)
-tracks the level-count growth closely and points at the per-level scan,
-not the container. Switching containers would improve the *constant
+tracked the level-count growth closely and pointed at the per-level scan,
+not the container. Switching containers would have improved the *constant
 factor* of that same `O(L)` scan (contiguous vs. pointer-chased traversal)
 without fixing its complexity class -- treating the symptom the benchmark
 happened to measure, not the cause.
 
-**Revisit if:** a future workload benchmark deliberately exercises
-`std::vector`'s O(n)-shift weakness (wide price-range churn, not just
-near-the-touch clustering, which is what this benchmark's generator
-produced) -- this round of benchmarking does not have evidence about
-that cost either way.
-
-**Update -- fix implemented, not just planned:** `aggregateFillable`'s
-redundant O(L) materialization (see next entry) was fixed immediately
-rather than deferred, since it was small, well-understood, and had no
-remaining design ambiguity. Post-fix, the map+list engine outperforms the
+**The fix, implemented immediately rather than deferred** (see next
+entry): `OrderBook::forEachLevelWhile`, removing a redundant full-side
+materialization. Post-fix, the map+list engine outperforms the
 *unmodified* flat_vector alternative at every benchmarked scale,
-including 10M events where flat_vector previously had a 55% lead. This
-is strong retrospective confirmation of the decision above: the container
-swap would have been a smaller, less-targeted win than fixing the actual
-redundant pass, and is now also simply unnecessary. See `BENCHMARKS.md`
-"Post-fix results" for before/after numbers.
+including 10M events where flat_vector previously had a 55% lead -- strong
+retrospective confirmation that the container swap would have been the
+smaller, less-targeted win, and is now also simply unnecessary. See
+`BENCHMARKS.md`'s "Post-fix results" for the before/after numbers.
 
-## `OrderBook::forEachLevelWhile` -- removing a redundant full-side materialization
+**Revisit the container question if:** a future workload benchmark
+deliberately exercises `std::vector`'s O(n)-shift weakness (wide
+price-range churn, not just near-the-touch clustering, which is what this
+project's benchmark generator produced) -- this round of benchmarking
+does not have evidence about that cost either way.
 
-**Found:** `MatchingEngine::aggregateFillable` (the FOK atomicity dry-run)
-called `book_.depth(opp, book_.levelCount(opp))`, which unconditionally
-builds a `std::vector` of **every** level on the opposite side, before
-the early-exit summation loop beneath it ever runs. The early-exit itself
-was always correct (`break` once a non-crossing price is hit, or once
-enough quantity is found) -- but it sat downstream of a pass that had
-already paid the full O(L) cost of walking the whole side, on every
-single FOK order, regardless of how few levels were actually needed. This
-is not an inherent property of "checking fillability within a price
-limit" -- it was a wasted intermediate step.
+## Phase 2: `OrderBook::forEachLevelWhile` -- removing a redundant full-side materialization
+
+**Found:** `MatchingEngine::aggregateFillable` (the FOK atomicity dry-run,
+decided correct in Phase 1) called `book_.depth(opp, book_.levelCount(opp))`,
+which unconditionally builds a `std::vector` of **every** level on the
+opposite side, before the early-exit summation loop beneath it ever runs.
+The early-exit itself was always correct (`break` once a non-crossing
+price is hit, or once enough quantity is found) -- but it sat downstream
+of a pass that had already paid the full O(L) cost of walking the whole
+side, on every single FOK order, regardless of how few levels were
+actually needed. This is not an inherent property of "checking
+fillability within a price limit" -- it was a wasted intermediate step.
 
 **Fixed:** added `OrderBook::forEachLevelWhile(side, fn)` -- a templated
 method (defined inline in the header, since the callback type must be
@@ -185,11 +256,112 @@ pass sitting in front of logic that already did the right thing; removing
 the wasted pass was sufficient and is simpler to audit than a second
 piece of synchronized state.
 
-**Verified:** full regression (42 unit tests, 300x1000-event property
-streams, 300x300-event differential streams, all under ASan+UBSan) passed
-identically before and after -- this change alters cost, not behavior,
-and the differential test against the untouched reference engine is what
-makes that claim checkable rather than assumed.
+**Verified:** full regression (42 unit tests at the time, 300x1000-event
+property streams, 300x300-event differential streams, all under
+ASan+UBSan) passed identically before and after -- this change alters
+cost, not behavior, and the differential test against the untouched
+reference engine is what makes that claim checkable rather than assumed.
+
+---
+
+## Phase 3: Trade is its own event kind, not a NewOrder that happens to match
+
+**Considered:** modeling every replay event uniformly as something fed
+through `MatchingEngine::submit()`, including recorded executions.
+
+**Chose:** a separate `EventKind::Trade`, applied via a new
+`MatchingEngine::applyExternalTrade(resting_id, qty, price)` that
+directly reduces a named resting order and records a `Trade`, without
+running `submit()`'s crossing logic at all.
+
+**Because:** a real market-data feed (LOBSTER being the canonical named
+example) reports an execution as "resting order X was hit for quantity
+Y" -- it does not hand you a resubmittable aggressor order, because the
+aggressor's identity is typically anonymized or simply absent from the
+public feed. There is no honest way to replay that kind of record through
+`submit()`, since `submit()` requires an aggressor order that the data
+doesn't contain. Synthetic `NewOrder` events (ones we generate ourselves,
+with no "real" aggressor to be faithful to) still go through `submit()`
+and get matched by the engine's own logic -- the two paths exist for two
+genuinely different kinds of input, not as a stylistic choice.
+
+`Trade.aggressor_id` is set to the reserved sentinel `0` for every trade
+produced this way (0 is never a valid caller-assigned `OrderId`
+elsewhere in the engine, so this is safe to treat as "no aggressor order
+exists for this trade"). Phase 4 later adds `Trade.aggressor_side`, which
+inherits this same sentinel discipline -- see below.
+
+## Phase 3: `SimulationLoop` defaults to `strict_mode = true`, applied uniformly across every event kind
+
+**Considered:** defaulting to "skip and log" (continue past a rejected
+event, recording it in the report) versus "fail fast" (stop the run at
+the first rejection).
+
+**Chose:** fail-fast by default (`strict_mode = true`), with
+`strict_mode = false` as an explicit opt-in for exploratory work on a
+known-messy feed.
+
+**Because:** this project's whole posture, stated at the outset, is
+correctness-first. A replay loop that silently reconstructs a *partial*
+book state and calls it done is the one place that principle would be
+violated by default behavior, not just risked by an edge case -- a
+silently-wrong reconstruction looks like a complete, trustworthy result
+right up until someone notices the numbers don't add up. "Skip and log"
+earns its place as an opt-in for a specific, nameable use case (a known-
+messy real-world dump, where best-effort reconstruction with a visible
+list of what was dropped is genuinely what's wanted), not as the default
+for a project built around correctness.
+
+This is applied **uniformly** across every event kind -- a rejected
+`NEW` (bad price/qty/duplicate id) or a `CANCEL`/`REPLACE` against an
+unknown id stops the run exactly like a bad `TRADE` row would, rather
+than only `applyExternalTrade` failures being treated as stoppable.
+Special-casing only one event kind would have been an arbitrary
+inconsistency, not a principled distinction -- a rejected `NEW` is just
+as much a data-quality signal from the feed as a bad `TRADE` row.
+
+**A separate, narrower decision in the same area:** file-format/parse
+errors (wrong column count, unparseable number, unrecognized event kind)
+are **always** fatal, regardless of `strict_mode` -- thrown by
+`parseCsvEvents()` before any event reaches `SimulationLoop` at all.
+`strict_mode` governs what to do when an otherwise well-formed event
+can't be cleanly *applied*; it does not govern whether the file itself is
+readable. Conflating the two would let a flag meant for row-level
+data-quality issues silently paper over a whole-file problem (wrong file,
+corrupted download, mismatched header).
+
+## Phase 3: a real bug the end-to-end property test caught before it shipped
+
+While writing `tests/property/replay_property_test.cpp` (random events ->
+serialized to the actual CSV text format -> parsed back via
+`parseCsvEvents()` -> replayed through `SimulationLoop` -> invariants
+checked after every dispatched event), the test's own CSV serializer had
+an off-by-one bug: the `Cancel` and `ClockTick` row templates had one
+extra trailing comma each, producing 9 columns instead of 8. Every single
+one of the first 200 random streams failed immediately on the CSV
+round-trip step, since nearly every stream contains cancels and the
+generator always appends a few `ClockTick` rows.
+
+This is recorded here deliberately, not edited out of the history, for
+two reasons. First, it's honest: catching a bug is normal and expected,
+and a design-decisions log that only ever shows clean first-try
+implementations would be less credible, not more. Second, it's a good
+illustration of *why* the end-to-end property test (CSV text round-trip,
+not just in-memory `OrderFlowEvent` structs handed directly to
+`SimulationLoop`) was worth building as specified in the Phase 3 brief --
+a narrower test that skipped CSV serialization entirely would never have
+exercised the actual text format and would have missed this class of bug
+completely. The fix was two one-character comma-count corrections;
+verified against a small Python script computing exact field counts
+rather than re-counting by eye a second time, after hand-counting commas
+turned out to be the root cause of the bug in the first place.
+
+(The same lesson repeated during Phase 4's own test-writing -- see
+`TESTING.md`'s note on `test_market_maker.cpp`'s quote-indexing
+assertions, caught the same way: run it and look, rather than trust a
+second round of manual arithmetic.)
+
+---
 
 ## Phase 4: `MarketSession` wraps engine+agent rather than the engine calling the agent directly
 
@@ -213,7 +385,7 @@ self-cross from the agent's own new quote is already visible in that same
 through the wrapper too would just be two code paths computing the same
 thing.
 
-**Revisit if:** Phase 5's full agent roster needs multiple agents sharing
+**Revisit if:** a future full agent roster needs multiple agents sharing
 one engine, at which point `MarketSession` likely needs to become
 "one session can route fills to several agents by order-id ownership"
 rather than the current one-engine-one-agent assumption -- a bounded,
@@ -313,132 +485,14 @@ specific to this metric, not a style preference. Each metric's window
 type matches what that metric actually measures; making them match each
 other for superficial consistency would have made one of them wrong.
 
-## Phase 3: Trade is its own event kind, not a NewOrder that happens to match
+---
 
-**Considered:** modeling every replay event uniformly as something fed
-through `MatchingEngine::submit()`, including recorded executions.
+## Phase 5: this file was reorganized, nothing else changed
 
-**Chose:** a separate `EventKind::Trade`, applied via a new
-`MatchingEngine::applyExternalTrade(resting_id, qty, price)` that
-directly reduces a named resting order and records a `Trade`, without
-running `submit()`'s crossing logic at all.
-
-**Because:** a real market-data feed (LOBSTER being the canonical named
-example) reports an execution as "resting order X was hit for quantity
-Y" -- it does not hand you a resubmittable aggressor order, because the
-aggressor's identity is typically anonymized or simply absent from the
-public feed. There is no honest way to replay that kind of record through
-`submit()`, since `submit()` requires an aggressor order that the data
-doesn't contain. Synthetic `NewOrder` events (ones we generate ourselves,
-with no "real" aggressor to be faithful to) still go through `submit()`
-and get matched by the engine's own logic -- the two paths exist for two
-genuinely different kinds of input, not as a stylistic choice.
-
-`Trade.aggressor_id` is set to the reserved sentinel `0` for every trade
-produced this way (0 is never a valid caller-assigned `OrderId`
-elsewhere in the engine, so this is safe to treat as "no aggressor order
-exists for this trade").
-
-## Phase 3: `SimulationLoop` defaults to `strict_mode = true`, applied uniformly across every event kind
-
-**Considered:** defaulting to "skip and log" (continue past a rejected
-event, recording it in the report) versus "fail fast" (stop the run at
-the first rejection).
-
-**Chose:** fail-fast by default (`strict_mode = true`), with
-`strict_mode = false` as an explicit opt-in for exploratory work on a
-known-messy feed.
-
-**Because:** this project's whole posture, stated at the outset, is
-correctness-first. A replay loop that silently reconstructs a *partial*
-book state and calls it done is the one place that principle would be
-violated by default behavior, not just risked by an edge case -- a
-silently-wrong reconstruction looks like a complete, trustworthy result
-right up until someone notices the numbers don't add up. "Skip and log"
-earns its place as an opt-in for a specific, nameable use case (a known-
-messy real-world dump, where best-effort reconstruction with a visible
-list of what was dropped is genuinely what's wanted), not as the default
-for a project built around correctness.
-
-This is applied **uniformly** across every event kind -- a rejected
-`NEW` (bad price/qty/duplicate id) or a `CANCEL`/`REPLACE` against an
-unknown id stops the run exactly like a bad `TRADE` row would, rather
-than only `applyExternalTrade` failures being treated as stoppable.
-Special-casing only one event kind would have been an arbitrary
-inconsistency, not a principled distinction -- a rejected `NEW` is just
-as much a data-quality signal from the feed as a bad `TRADE` row.
-
-**A separate, narrower decision in the same area:** file-format/parse
-errors (wrong column count, unparseable number, unrecognized event kind)
-are **always** fatal, regardless of `strict_mode` -- thrown by
-`parseCsvEvents()` before any event reaches `SimulationLoop` at all.
-`strict_mode` governs what to do when an otherwise well-formed event
-can't be cleanly *applied*; it does not govern whether the file itself is
-readable. Conflating the two would let a flag meant for row-level
-data-quality issues silently paper over a whole-file problem (wrong file,
-corrupted download, mismatched header).
-
-## Phase 3: a real bug the end-to-end property test caught before it shipped
-
-While writing `tests/property/replay_property_test.cpp` (random events ->
-serialized to the actual CSV text format -> parsed back via
-`parseCsvEvents()` -> replayed through `SimulationLoop` -> invariants
-checked after every dispatched event), the test's own CSV serializer had
-an off-by-one bug: the `Cancel` and `ClockTick` row templates had one
-extra trailing comma each, producing 9 columns instead of 8. Every single
-one of the first 200 random streams failed immediately on the CSV
-round-trip step, since nearly every stream contains cancels and the
-generator always appends a few `ClockTick` rows.
-
-This is recorded here deliberately, not edited out of the history, for
-two reasons. First, it's honest: catching a bug is normal and expected,
-and a design-decisions log that only ever shows clean first-try
-implementations would be less credible, not more. Second, it's a good
-illustration of *why* the end-to-end property test (CSV text round-trip,
-not just in-memory `OrderFlowEvent` structs handed directly to
-`SimulationLoop`) was worth building as specified in the Phase 3 brief --
-a narrower test that skipped CSV serialization entirely would never have
-exercised the actual text format and would have missed this class of bug
-completely. The fix was two one-character comma-count corrections;
-verified against a small Python script computing exact field counts
-rather than re-counting by eye a second time, after hand-counting commas
-turned out to be the root cause of the bug in the first place.
-
-## `ExecutionReport` gained a `sequence` field, after initial implementation
-
-**Surfaced closing out Phase 1:** `ExecutionReport` had no way to expose
-the sequence number an event consumed, which made sequence-monotonicity
-untestable as a standalone property (it was only checkable indirectly,
-by inference from trade ordering). Added `Sequence sequence = 0;`, with
-`0` meaning "this report didn't consume a new sequence number" (`cancel()`
-and an in-place quantity-decrease `replace()` don't mint one; every
-`submit()` call does, including the internal resubmit inside a
-priority-forfeiting `replace()`). Chosen over, e.g., exposing the engine's
-internal counter directly, since the report is already the public
-per-event result type and this keeps the "what sequence did THIS event
-get" question answerable from the return value alone rather than from
-engine internals.
-
-## Testing: custom harness over a property-testing library
-
-**Decided (Phase 0, confirmed):** a small, auditable custom
-randomized-event-stream harness (`tests/property/property_test.cpp`),
-rather than adopting RapidCheck, for Phase 1. Gives full control over
-event-shape generation and invariant checking, and is itself a portfolio
-signal (demonstrates understanding of what property testing does, rather
-than depending on a library to do it). RapidCheck (specifically for
-automatic shrinking of failing cases) remains named future work, to be
-adopted only if manually narrowing a failing seed down by hand proves
-genuinely painful in practice -- which has not yet happened.
-
-## Differential testing: kept in MVP scope
-
-**Decided (Phase 0, confirmed on review):** a deliberately naive, O(n)
-linear-scan reference engine (`tests/reference/reference_engine.hpp`),
-differentially tested against the real engine on identical randomized
-event streams (`tests/reference/test_differential.cpp`). This caught
-nothing wrong in this implementation (all streams matched from first
-correct implementation), but it remains the strongest correctness
-artifact in the repository precisely because it checks the real engine
-against an independently-reasoned-about model rather than against its own
-stated invariants, which could in principle all hold on a wrong answer.
+The reordering above is purely organizational -- every entry's actual
+content is unchanged from when it was written during its originating
+phase; only the ordering and a few cross-reference notes (the italicized
+asides pointing forward/backward between phases) were added, plus the
+Index at the top. No code changed as part of this reorganization. See
+`README.md`'s Known Limitations section and the repo-wide review notes in
+this phase's closing summary for what else Phase 5 touched.
