@@ -8,7 +8,7 @@ lifetime discipline, deliberate STL container choice backed by reasoning
 about iterator invalidation and cache behavior, templates, and
 profiling-driven (not assumed) optimization.
 
-## What's here (Phase 1-3 / MVP)
+## What's here (Phase 1-4 / MVP)
 
 - Price-time priority matching for Market, Limit, IOC, and FOK orders,
   plus cancel and replace (with correct priority-preservation semantics).
@@ -33,6 +33,15 @@ profiling-driven (not assumed) optimization.
   `MatchingEngine`. Trade events apply directly to a named resting order
   (no aggressor to resubmit -- see `DESIGN_DECISIONS.md`), rather than
   being forced through normal matching.
+- A market-maker agent: inventory-aware two-sided quoting (hard
+  inventory limit, linear inventory skew), adverse-selection-aware
+  spread widening, and average-cost PnL (realized + unrealized, marked
+  to midprice). Validated against a hand-calculated scenario run through
+  the real engine end to end -- see `TESTING.md`.
+- Core microstructure analytics beyond Phase 1's spread/midprice/
+  microprice: order flow imbalance (OFI), realized volatility over a
+  rolling time window, and trade-sign classification (ground truth when
+  the engine knows the aggressor, the quote rule otherwise).
 
 See `ARCHITECTURE.md` for module/class/sequence diagrams,
 `DESIGN_DECISIONS.md` for the alternatives considered and why each choice
@@ -96,6 +105,16 @@ by oversight:
   is a bounded, additive piece of work once sample data exists.
 - **Full latency simulation** (vs. the measurement-only hooks here) --
   injected network/exchange/agent delay, not just timing instrumentation.
+- **Full Avellaneda-Stoikov inventory skew** -- the current linear proxy
+  is explicitly not this; A-S derives the optimal skew from risk
+  aversion, volatility, and time-to-horizon via a closed-form solution,
+  not a linear shift.
+- **FIFO lot-accounting PnL** (vs. the current average-cost method).
+- **Soft inventory tapering** (vs. the current hard stop at the limit).
+- **Continuous/exponentially-decaying adverse-selection signal** (vs.
+  the current fixed trigger-and-decay window).
+- **Full Lee-Ready trade-sign classification** (the current quote rule
+  has no tick-rule fallback for exactly-at-midpoint trades).
 - **Self-trade prevention** -- no `participant_id` exists on `Order` yet;
   adding one is the natural next step once agent identity matters (e.g.
   studying the market-maker agent's own self-trade behavior).

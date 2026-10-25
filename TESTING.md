@@ -109,6 +109,48 @@ zero ASan or UBSan reports.
   of why the round-trip-through-real-text-format design was worth the
   extra effort over a narrower in-memory-only test.
 
+## Phase 4: market maker agent + analytics
+
+- **Unit tests** (`test_market_maker.cpp`, 7 cases): symmetric quoting
+  around the reference, inventory-limit withdrawal, inventory-skew
+  direction (with the indexing subtlety -- a skewed quote can become the
+  *best* level rather than staying behind a wider seeded book, which an
+  earlier draft of this exact test got wrong and a build-and-run caught
+  immediately; left as a worked example in the test's own comments),
+  adverse-selection triggering and its time-window boundary condition, a
+  mixed-side run NOT triggering it, and the midprice-unavailable no-op case.
+- **Unit tests** (`test_market_maker_pnl.cpp`, 7 cases): the average-cost
+  method in isolation via direct `onFill()` calls -- opening, adding at a
+  different price (weighted average), partial close (realized PnL,
+  unchanged avg_cost), full close (avg_cost zeroed), a fill that flips
+  through zero (closes the old position, opens a new one at the fill
+  price), a short position's `unrealizedPnl` sign, and `totalPnl`
+  combining both correctly.
+- **Unit tests** (`test_market_session.cpp`, 4 cases): an external order
+  crossing the agent's resting bid triggers `onFill`; a trade between two
+  OTHER participants does not touch agent state; `applyExternalTrade`
+  against the agent's resting ask triggers `onFill`; `cancel` is a pure
+  pass-through with no fill side effects.
+- **Unit tests** (`test_analytics.cpp`, 12 cases): `classifyTradeSign`'s
+  ground-truth path (internal trades) and quote-rule fallback (at/above
+  ask, at/below bid, strictly-between, no-quote-available); `OFI`'s
+  per-event contribution formula for a size-only change, a bid price
+  improvement, an ask price improvement, and window forgetting; realized
+  volatility's zero/one-sample base case, a hand-matched squared-log-
+  return sum, and the time-window aging-out behavior.
+- **The gate scenario** (`test_pnl_hand_calculation.cpp`): the Phase 4
+  stop condition. A short sequence -- seed a reference book, the agent
+  quotes, three external orders cross its resting bid/ask in turn -- run
+  through the REAL `MatchingEngine` + `MarketSession` + `MarketMakerAgent`
+  pipeline end to end, with every intermediate state (inventory, avg_cost,
+  realized_pnl) checked against a hand calculation written out in the
+  test file's own comments, matching exactly what's presented in the
+  conversation turn that closed this phase. Not an isolated formula
+  check (that's `test_market_maker_pnl.cpp`) -- this exercises real
+  price-time matching, fill detection through `MarketSession`, and the
+  PnL update together, which is what the brief's stop condition actually
+  asked to be validated.
+
 ## Known gaps (Phase 1, honest accounting)
 
 - `clang-format`/`clang-tidy` are specified (`.clang-format`, `.clang-tidy`)

@@ -50,7 +50,7 @@ std::vector<Trade> MatchingEngine::matchAggressive(Order& order) {
         const Quantity trade_qty = std::min(order.remaining_qty, front->remaining_qty);
 
         trades.push_back(Trade{++trade_id_counter_, order.id, front->id, front->price, trade_qty,
-                               order.sequence});
+                               order.sequence, order.side});
 
         order.remaining_qty -= trade_qty;
         // Mutate the book by id, never through `front` (which is a copy
@@ -201,6 +201,7 @@ std::optional<Trade> MatchingEngine::applyExternalTrade(OrderId resting_id, Quan
     t.quantity = qty;
     t.sequence = ++sequence_counter_;  // still consumes a sequence number,
                                        // same monotonicity discipline as submit()
+    t.aggressor_side = Side::Buy;      // meaningless -- see Trade::aggressor_side's doc comment
     return t;
 }
 

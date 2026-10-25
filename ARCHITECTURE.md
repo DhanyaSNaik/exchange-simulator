@@ -121,6 +121,33 @@ touching the engine.
   injected, and no hooks are registered by Phase 3 itself. They exist for
   Phase 4's agents to consume.
 
+## Phase 4: market maker agent + analytics (`include/lob/market_maker.hpp`, `market_session.hpp`, `analytics.hpp`)
+
+- `MarketMakerAgent` holds its own `MatchingEngine&` and manages its own
+  two-sided quote directly (`onTick()` cancels and reposts both sides,
+  withdrawing whichever side is at its inventory limit). It does NOT
+  know `MarketSession` exists.
+- `MarketSession` wraps external order flow (anything NOT initiated by
+  the agent itself) and routes any resulting trade against the agent's
+  own resting quotes to `agent.onFill()`. `MatchingEngine` and
+  `SimulationLoop` have zero knowledge that agents exist as a concept --
+  same layering discipline as every prior phase. See
+  `DESIGN_DECISIONS.md` for why the agent's own self-crosses are handled
+  inline rather than through this wrapper.
+- PnL is average-cost (two scalars: `inventory`, `avg_cost`), not FIFO
+  lot accounting -- explicitly named as the simplification it is.
+  Inventory limits are a hard stop, not a soft taper. Inventory skew is
+  linear, explicitly not Avellaneda-Stoikov. Adverse-selection widening
+  is a fixed trigger-and-decay window, not a continuous signal. All four
+  are named in `DESIGN_DECISIONS.md`, not just implemented silently.
+- `analytics.hpp` does NOT reimplement spread/midprice/microprice --
+  those already exist on `MatchingEngine` from Phase 1. It adds
+  `classifyTradeSign` (ground truth from `Trade::aggressor_side` when
+  known, the quote rule otherwise), `OrderFlowImbalanceTracker`
+  (event-count window), and `RealizedVolatilityTracker` (time window) --
+  the asymmetry between those two windows is deliberate, not an
+  oversight; see `DESIGN_DECISIONS.md`.
+
 ## Why `frontOfBook`/`get` return copies, not pointers
 
 Early in Phase 1 API design, `frontOfBook` was going to return `Order*`

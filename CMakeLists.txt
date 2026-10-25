@@ -23,6 +23,9 @@ add_library(lob_core
   src/matching_engine.cpp
   src/csv_event_reader.cpp
   src/simulation_loop.cpp
+  src/market_maker.cpp
+  src/market_session.cpp
+  src/analytics.cpp
 )
 target_include_directories(lob_core PUBLIC include)
 
@@ -36,6 +39,11 @@ add_executable(unit_tests
   tests/unit/test_sequence_monotonicity.cpp
   tests/unit/test_csv_event_reader.cpp
   tests/unit/test_simulation_loop.cpp
+  tests/unit/test_market_maker.cpp
+  tests/unit/test_market_maker_pnl.cpp
+  tests/unit/test_market_session.cpp
+  tests/unit/test_analytics.cpp
+  tests/unit/test_pnl_hand_calculation.cpp
 )
 target_include_directories(unit_tests PRIVATE tests)
 target_link_libraries(unit_tests PRIVATE lob_core)

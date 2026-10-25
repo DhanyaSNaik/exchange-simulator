@@ -191,6 +191,128 @@ identically before and after -- this change alters cost, not behavior,
 and the differential test against the untouched reference engine is what
 makes that claim checkable rather than assumed.
 
+## Phase 4: `MarketSession` wraps engine+agent rather than the engine calling the agent directly
+
+**Considered:** `MatchingEngine` holding a registered agent callback,
+invoked directly on every fill.
+
+**Chose:** a separate `MarketSession` class that wraps external order
+flow, inspects every resulting `Trade` for a `resting_id` matching the
+agent's own live quote ids, and calls `agent.onFill()` only then.
+`MatchingEngine` and `SimulationLoop` have zero knowledge that "agents"
+exist as a concept.
+
+**Because:** this preserves the same layering discipline established in
+Phase 1 (`OrderBook` knows nothing about matching semantics) and Phase 3
+(`SimulationLoop` knows nothing about agents) -- each layer only knows
+about the one below it. The agent's OWN quote-posting (inside
+`MarketMakerAgent::onTick()`, which calls `engine_.submit()`/`cancel()`
+directly) deliberately does **not** go through `MarketSession` -- a
+self-cross from the agent's own new quote is already visible in that same
+`submit()` call's own `ExecutionReport`, handled inline, so routing it
+through the wrapper too would just be two code paths computing the same
+thing.
+
+**Revisit if:** Phase 5's full agent roster needs multiple agents sharing
+one engine, at which point `MarketSession` likely needs to become
+"one session can route fills to several agents by order-id ownership"
+rather than the current one-engine-one-agent assumption -- a bounded,
+additive change to this class, not a redesign of the layering itself.
+
+## Phase 4: PnL via average-cost, not FIFO lot accounting
+
+**Considered:** FIFO lot-level tracking (each fill creates a distinct
+"lot" with its own cost basis; closes consume the oldest lot first).
+
+**Chose:** a single weighted-average `avg_cost`, updated on every
+position-adding fill, with a position-reducing fill realizing
+`qty_closed * (price - avg_cost)` (sign-adjusted for long/short) and
+leaving `avg_cost` unchanged for whatever remains. A fill that reduces
+past zero splits into a closing part (at the old `avg_cost`) and a fresh
+opening part (at the fill's own price).
+
+**Because:** this is the standard simplification real systems use when
+tax-lot-level accuracy isn't the point, and it's what makes the
+hand-calculable gate scenario tractable to verify by hand at all --
+FIFO lot accounting would require tracking an ordered list of
+not-yet-closed fills rather than two scalars (`inventory`, `avg_cost`),
+which is more state to keep correct for a difference that doesn't matter
+at this project's scope (one agent, no tax reporting, no regulatory lot
+mandates).
+
+## Phase 4: inventory limit is a hard stop, not a soft taper
+
+**Considered:** reducing quote size as inventory approaches the limit
+(graceful taper) versus withdrawing the quote entirely at the limit
+(hard stop).
+
+**Chose:** hard stop -- once `inventory >= max_inventory`, the bid is
+withdrawn entirely (symmetric for the ask and `-max_inventory`); no
+partial sizing.
+
+**Because:** this is the simplest rule that is still correct, and -- not
+incidentally -- the only one that keeps the hand-calculable gate scenario
+actually hand-calculable without needing to also verify a tapering
+function's output. A soft taper is more realistic and is named as
+candidate future work, but nothing in this phase's scope demonstrated a
+need for it over the simple version.
+
+## Phase 4: inventory skew is linear, explicitly not Avellaneda-Stoikov
+
+**Named directly, not just implied:** `reference = midprice - inventory *
+inventory_skew_factor` is a linear proxy for inventory risk. Real
+Avellaneda-Stoikov derives the optimal skew from a risk-aversion
+parameter, the volatility of the underlying, and time remaining to a
+horizon, via a closed-form solution to a utility-maximization problem --
+a materially different (and more principled) derivation, not an
+approximation of it. Implementing actual A-S is out of scope for this
+phase (per the brief) and is named in `README.md`'s Future Work rather
+than approximated further here.
+
+## Phase 4: adverse-selection widening is a fixed trigger-and-decay window
+
+**Chose:** `N` consecutive same-side fills within a fixed time window
+triggers widening for a fixed duration, then it unconditionally clears.
+
+**Because:** this is checkable by a human reading the fill sequence and
+the three config numbers, which a continuously-decaying signal (e.g. an
+exponentially-weighted "being run over" score) would not be -- and
+`run_over_fill_threshold`/`run_over_window_ns`/`widen_duration_ns` as
+three independent, named knobs make the simplification visible rather
+than buried in a decay-constant that's hard to reason about intuitively.
+
+## Phase 4: `Trade` gains an `aggressor_side` field
+
+Same category of change as Phase 1's `sequence` field and Phase 3's
+`applyExternalTrade` -- growing a production type for a real, specific
+need, flagged the same way rather than quietly bundled into "analytics
+work." Needed so `classifyTradeSign()` can use ground truth (the
+aggressor's actual side, known with certainty for every internally-
+matched trade) instead of inferring it from price for trades where the
+engine already knows the answer. Meaningless when `aggressor_id == 0`
+(an externally-replayed trade via `applyExternalTrade`, which has no
+aggressor order at all) -- defaults to `Side::Buy` in that case purely so
+the field has a defined value; callers must check `aggressor_id == 0`
+first, the same discipline already required for that field since Phase 3.
+
+## Phase 4: OFI uses an event-count window; realized volatility uses a time window -- not an inconsistency
+
+This asymmetry was flagged for explicit review before implementation,
+specifically because it's easy to mistake for carelessness rather than a
+deliberate distinction. **OFI** (order flow imbalance) is, by its
+standard definition (Cont, Kukanov, Stoikov), a sum of PER-EVENT
+contributions -- the quantity is inherently about "how much did the book
+change over the last N *events*," and an event-count window is the
+literature's own convention, not a simplification chosen for
+convenience. **Realized volatility**, by contrast, is inherently a
+per-unit-TIME quantity -- an event-count window for volatility would make
+the reported number depend on how busy the market happened to be during
+that stretch (a quiet period's N events might span an hour; a busy
+period's N events might span a second), which is a real distortion
+specific to this metric, not a style preference. Each metric's window
+type matches what that metric actually measures; making them match each
+other for superficial consistency would have made one of them wrong.
+
 ## Phase 3: Trade is its own event kind, not a NewOrder that happens to match
 
 **Considered:** modeling every replay event uniformly as something fed

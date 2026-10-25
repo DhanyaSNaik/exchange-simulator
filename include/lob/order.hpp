@@ -55,6 +55,19 @@ struct Trade {
     Price price;  // always the resting order's price.
     Quantity quantity;
     Sequence sequence;  // sequence of the aggressing event.
+
+    // The side of the AGGRESSOR (the incoming order that caused this
+    // trade), not the resting order's side. Ground truth, set directly
+    // from the aggressor's own Order::side at match time -- never
+    // inferred from price (Phase 4: trade-sign classification uses this
+    // when it's available, falling back to the quote rule only when it
+    // isn't). MEANINGLESS when aggressor_id == 0 (a replayed Trade event
+    // via MatchingEngine::applyExternalTrade, which has no aggressor
+    // order at all -- see Phase 3's DESIGN_DECISIONS.md entry on the
+    // aggressor_id sentinel). Defaults to Side::Buy in that case purely
+    // so the field has a defined value; callers must check aggressor_id
+    // == 0 first, the same discipline already required for that field.
+    Side aggressor_side = Side::Buy;
 };
 
 struct ExecutionReport {

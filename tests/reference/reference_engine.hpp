@@ -190,7 +190,7 @@ private:
             Quantity trade_qty = std::min(order.remaining_qty, resting.remaining_qty);
 
             trades.push_back(Trade{++trade_id_counter_, order.id, resting.id, resting.price,
-                                   trade_qty, order.sequence});
+                                   trade_qty, order.sequence, order.side});
             order.remaining_qty -= trade_qty;
             resting.remaining_qty -= trade_qty;
             if (resting.remaining_qty == 0) {

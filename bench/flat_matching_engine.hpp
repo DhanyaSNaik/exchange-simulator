@@ -167,7 +167,7 @@ private:
 
             const Quantity trade_qty = std::min(order.remaining_qty, front->remaining_qty);
             trades.push_back(Trade{++trade_id_counter_, order.id, front->id, front->price,
-                                   trade_qty, order.sequence});
+                                   trade_qty, order.sequence, order.side});
             order.remaining_qty -= trade_qty;
             book_.reduceQuantity(front->id, trade_qty);
         }
